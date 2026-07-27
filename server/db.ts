@@ -1,258 +1,165 @@
-import initSqlJs, { type Database } from "sql.js";
+import { createClient, type Client, type InValue } from "@libsql/client";
+import bcrypt from "bcryptjs";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import bcrypt from "bcryptjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const DB_PATH = path.join(__dirname, "data", "prisma.db");
-const WASM_PATH = path.join(
-  path.dirname(fileURLToPath(import.meta.resolve("sql.js"))),
-  "sql-wasm.wasm"
-);
 
-let db: Database;
+type SqlValue = InValue;
+type Row = Record<string, unknown>;
 
-export function getDb(): Database {
-  if (!db) throw new Error("Database not initialized");
-  return db;
-}
+let client: Client | null = null;
+let initPromise: Promise<void> | null = null;
 
-export function persist() {
-  const data = db.export();
-  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
-  fs.writeFileSync(DB_PATH, Buffer.from(data));
-}
-
-function run(sql: string, params: unknown[] = []) {
-  db.run(sql, params as never[]);
-}
-
-export function queryAll<T = Record<string, unknown>>(
-  sql: string,
-  params: unknown[] = []
-): T[] {
-  const stmt = db.prepare(sql);
-  stmt.bind(params as never[]);
-  const rows: T[] = [];
-  while (stmt.step()) {
-    rows.push(stmt.getAsObject() as T);
+function resolveDbUrl(): string {
+  const url = process.env.TURSO_DATABASE_URL?.trim();
+  if (url) {
+    if (url.startsWith("file:")) {
+      const rel = url.slice("file:".length);
+      const abs = path.isAbsolute(rel) ? rel : path.resolve(process.cwd(), rel);
+      fs.mkdirSync(path.dirname(abs), { recursive: true });
+      return `file:${abs}`;
+    }
+    return url;
   }
-  stmt.free();
-  return rows;
+  const fallback = path.resolve(process.cwd(), "server/data/local.db");
+  fs.mkdirSync(path.dirname(fallback), { recursive: true });
+  return `file:${fallback}`;
 }
 
-export function queryOne<T = Record<string, unknown>>(
+export function getClient(): Client {
+  if (!client) {
+    const url = resolveDbUrl();
+    const authToken = process.env.TURSO_AUTH_TOKEN?.trim() || undefined;
+    client = createClient({
+      url,
+      authToken: url.startsWith("file:") ? undefined : authToken,
+    });
+  }
+  return client;
+}
+
+function normalizeRow(row: Record<string, unknown>): Row {
+  const out: Row = {};
+  for (const [k, v] of Object.entries(row)) {
+    out[k] = typeof v === "bigint" ? Number(v) : v;
+  }
+  return out;
+}
+
+export async function run(sql: string, params: SqlValue[] = []): Promise<void> {
+  await getClient().execute({ sql, args: params });
+}
+
+export async function queryAll<T = Row>(
   sql: string,
-  params: unknown[] = []
-): T | null {
-  const rows = queryAll<T>(sql, params);
+  params: SqlValue[] = []
+): Promise<T[]> {
+  const rs = await getClient().execute({ sql, args: params });
+  return rs.rows.map((r) => normalizeRow(r as unknown as Row) as T);
+}
+
+export async function queryOne<T = Row>(
+  sql: string,
+  params: SqlValue[] = []
+): Promise<T | null> {
+  const rows = await queryAll<T>(sql, params);
   return rows[0] ?? null;
 }
 
-function tableCount(name: string): number {
-  const row = queryOne<{ c: number }>(`SELECT COUNT(*) as c FROM ${name}`);
-  return row?.c ?? 0;
+async function tableCount(name: string): Promise<number> {
+  const row = await queryOne<{ c: number }>(`SELECT COUNT(*) as c FROM ${name}`);
+  return Number(row?.c ?? 0);
 }
 
-function createSchema() {
-  db.run(`
-    PRAGMA foreign_keys = ON;
+async function applySchema(): Promise<void> {
+  const schemaPath = path.join(__dirname, "schema.sql");
+  const sql = fs.readFileSync(schemaPath, "utf8");
+  const statements = sql
+    .split(";")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0 && !s.startsWith("--"));
 
-    CREATE TABLE IF NOT EXISTS usuarios (
-      id TEXT PRIMARY KEY,
-      nombres TEXT NOT NULL,
-      apellidos TEXT NOT NULL DEFAULT '',
-      correo TEXT NOT NULL UNIQUE,
-      password_hash TEXT NOT NULL,
-      usuarios TEXT NOT NULL,
-      telefono TEXT NOT NULL DEFAULT '',
-      rol TEXT NOT NULL,
-      foto_perfil TEXT,
-      fecha_registro TEXT,
-      ocupacion TEXT,
-      empresa TEXT,
-      descripcion TEXT,
-      tipo_arrendador TEXT,
-      numero_identidad TEXT,
-      fecha_nacimiento TEXT,
-      nombre_comercial TEXT,
-      razon_social TEXT,
-      rtn_empresa TEXT,
-      numero_registro_mercantil TEXT,
-      giro_actividad_economica TEXT,
-      fecha_constitucion TEXT,
-      representante_legal_nombre TEXT,
-      representante_legal_identidad TEXT,
-      representante_legal_cargo TEXT,
-      representante_legal_correo TEXT,
-      representante_legal_telefono TEXT,
-      departamento TEXT,
-      municipio TEXT,
-      direccion_exacta TEXT,
-      banco TEXT,
-      tipo_cuenta TEXT,
-      numero_cuenta TEXT,
-      nombre_titular TEXT,
-      rtn TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS categorias (
-      id TEXT PRIMARY KEY,
-      nombre TEXT NOT NULL,
-      icono TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS espacios (
-      id TEXT PRIMARY KEY,
-      arrendador_id TEXT NOT NULL,
-      nombre TEXT NOT NULL,
-      direccion TEXT NOT NULL,
-      ciudad TEXT NOT NULL,
-      descripcion TEXT NOT NULL DEFAULT '',
-      imagenes TEXT NOT NULL DEFAULT '[]',
-      servicios_incluidos TEXT NOT NULL DEFAULT '[]',
-      precio_hora REAL,
-      precio_dia REAL,
-      capacidad INTEGER,
-      categoria_id TEXT,
-      calificacion REAL DEFAULT 0,
-      total_resenas INTEGER DEFAULT 0,
-      disponible INTEGER NOT NULL DEFAULT 1,
-      fecha_creacion TEXT,
-      FOREIGN KEY (arrendador_id) REFERENCES usuarios(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS reservas (
-      id TEXT PRIMARY KEY,
-      espacio_id TEXT NOT NULL,
-      usuario_arrendatario_id TEXT NOT NULL,
-      usuario_arrendador_id TEXT NOT NULL,
-      fecha_inicio TEXT NOT NULL,
-      fecha_fin TEXT NOT NULL,
-      estado TEXT NOT NULL,
-      precio_total REAL NOT NULL DEFAULT 0,
-      fecha_creacion TEXT,
-      cantidad_personas INTEGER,
-      hora_inicio TEXT,
-      hora_fin TEXT,
-      resena_dejada INTEGER NOT NULL DEFAULT 0,
-      FOREIGN KEY (espacio_id) REFERENCES espacios(id),
-      FOREIGN KEY (usuario_arrendatario_id) REFERENCES usuarios(id),
-      FOREIGN KEY (usuario_arrendador_id) REFERENCES usuarios(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS favoritos (
-      id TEXT PRIMARY KEY,
-      usuario_id TEXT NOT NULL,
-      espacio_id TEXT NOT NULL,
-      fecha_guardado TEXT,
-      UNIQUE(usuario_id, espacio_id)
-    );
-
-    CREATE TABLE IF NOT EXISTS resenas (
-      id TEXT PRIMARY KEY,
-      espacio_id TEXT NOT NULL,
-      usuario_id TEXT NOT NULL,
-      reserva_id TEXT,
-      calificacion INTEGER NOT NULL,
-      comentario TEXT,
-      fecha TEXT,
-      tipos_etiquetas TEXT DEFAULT '[]'
-    );
-
-    CREATE TABLE IF NOT EXISTS suscripciones (
-      id TEXT PRIMARY KEY,
-      nombre TEXT NOT NULL,
-      descripcion TEXT,
-      tipo TEXT NOT NULL,
-      precio_mensual REAL NOT NULL DEFAULT 0,
-      precio_anual REAL NOT NULL DEFAULT 0,
-      duracion TEXT NOT NULL DEFAULT 'mensual',
-      beneficios TEXT NOT NULL DEFAULT '[]',
-      estado TEXT NOT NULL DEFAULT 'activa',
-      comision_pct REAL NOT NULL DEFAULT 7
-    );
-
-    CREATE TABLE IF NOT EXISTS suscripciones_usuario (
-      id TEXT PRIMARY KEY,
-      usuario_id TEXT NOT NULL,
-      suscripcion_id TEXT NOT NULL,
-      fecha_inicio TEXT NOT NULL,
-      fecha_fin TEXT,
-      estado TEXT NOT NULL DEFAULT 'activa',
-      renovacion_automatica INTEGER NOT NULL DEFAULT 1
-    );
-
-    CREATE TABLE IF NOT EXISTS tarjetas (
-      id TEXT PRIMARY KEY,
-      usuario_id TEXT NOT NULL,
-      last4 TEXT NOT NULL,
-      nombre TEXT NOT NULL,
-      tipo TEXT NOT NULL DEFAULT 'Débito',
-      es_principal INTEGER NOT NULL DEFAULT 0
-    );
-
-    CREATE TABLE IF NOT EXISTS faqs (
-      id TEXT PRIMARY KEY,
-      pregunta TEXT NOT NULL,
-      respuesta TEXT NOT NULL,
-      orden INTEGER NOT NULL DEFAULT 0
-    );
-
-    CREATE TABLE IF NOT EXISTS politicas (
-      id TEXT PRIMARY KEY,
-      rol TEXT NOT NULL,
-      titulo TEXT NOT NULL,
-      contenido TEXT NOT NULL,
-      orden INTEGER NOT NULL DEFAULT 0
-    );
-
-    CREATE TABLE IF NOT EXISTS contactos (
-      id TEXT PRIMARY KEY,
-      nombre TEXT NOT NULL,
-      correo TEXT NOT NULL,
-      telefono TEXT,
-      mensaje TEXT NOT NULL,
-      fecha TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS preferencias (
-      usuario_id TEXT PRIMARY KEY,
-      notificaciones INTEGER NOT NULL DEFAULT 1,
-      ofertas INTEGER NOT NULL DEFAULT 1,
-      newsletter INTEGER NOT NULL DEFAULT 1
-    );
-
-    CREATE TABLE IF NOT EXISTS counters (
-      name TEXT PRIMARY KEY,
-      value INTEGER NOT NULL DEFAULT 0
-    );
-  `);
-}
-
-export function nextId(prefix: string, counterName: string): string {
-  const row = queryOne<{ value: number }>(
-    "SELECT value FROM counters WHERE name = ?",
-    [counterName]
-  );
-  const next = (row?.value ?? 0) + 1;
-  if (row) {
-    run("UPDATE counters SET value = ? WHERE name = ?", [next, counterName]);
-  } else {
-    run("INSERT INTO counters (name, value) VALUES (?, ?)", [counterName, next]);
+  for (const statement of statements) {
+    await run(statement);
   }
-  persist();
-  return `${prefix}${String(next).padStart(3, "0")}`;
 }
 
-function seed() {
-  if (tableCount("usuarios") > 0) return;
+export async function nextId(prefix: string, counterName: string): Promise<string> {
+  const c = getClient();
+  const tx = await c.transaction("write");
+  try {
+    const rs = await tx.execute({
+      sql: "SELECT value FROM counters WHERE name = ?",
+      args: [counterName],
+    });
+    const current = rs.rows[0]
+      ? Number((rs.rows[0] as unknown as { value: number }).value ?? 0)
+      : 0;
+    const next = current + 1;
+    if (rs.rows[0]) {
+      await tx.execute({
+        sql: "UPDATE counters SET value = ? WHERE name = ?",
+        args: [next, counterName],
+      });
+    } else {
+      await tx.execute({
+        sql: "INSERT INTO counters (name, value) VALUES (?, ?)",
+        args: [counterName, next],
+      });
+    }
+    await tx.commit();
+    return `${prefix}${String(next).padStart(3, "0")}`;
+  } catch (err) {
+    await tx.rollback();
+    throw err;
+  }
+}
+
+async function seed(): Promise<void> {
+  if ((await tableCount("usuarios")) > 0) return;
 
   const hash = (p: string) => bcrypt.hashSync(p, 8);
 
-  const users = [
+  type SeedUser = {
+    id: string;
+    nombres: string;
+    apellidos?: string;
+    correo: string;
+    password: string;
+    usuarios: string;
+    telefono?: string;
+    rol: string;
+    fecha_registro?: string;
+    ocupacion?: string;
+    empresa?: string;
+    descripcion?: string;
+    tipo_arrendador?: string;
+    numero_identidad?: string;
+    fecha_nacimiento?: string;
+    nombre_comercial?: string;
+    razon_social?: string;
+    rtn_empresa?: string;
+    numero_registro_mercantil?: string;
+    giro_actividad_economica?: string;
+    fecha_constitucion?: string;
+    representante_legal_nombre?: string;
+    representante_legal_identidad?: string;
+    representante_legal_cargo?: string;
+    representante_legal_correo?: string;
+    representante_legal_telefono?: string;
+    departamento?: string;
+    municipio?: string;
+    direccion_exacta?: string;
+    banco?: string;
+    tipo_cuenta?: string;
+    numero_cuenta?: string;
+    nombre_titular?: string;
+  };
+
+  const users: SeedUser[] = [
     {
       id: "USR001",
       nombres: "Juan",
@@ -337,7 +244,7 @@ function seed() {
   ];
 
   for (const u of users) {
-    run(
+    await run(
       `INSERT INTO usuarios (
         id, nombres, apellidos, correo, password_hash, usuarios, telefono, rol,
         fecha_registro, ocupacion, empresa, descripcion, tipo_arrendador,
@@ -383,7 +290,7 @@ function seed() {
         u.nombre_titular ?? null,
       ]
     );
-    run(
+    await run(
       "INSERT INTO preferencias (usuario_id, notificaciones, ofertas, newsletter) VALUES (?,?,?,?)",
       [u.id, 1, 1, 1]
     );
@@ -397,7 +304,7 @@ function seed() {
     ["CAT005", "Estudio", "studio"],
   ];
   for (const c of cats) {
-    run("INSERT INTO categorias (id, nombre, icono) VALUES (?,?,?)", c);
+    await run("INSERT INTO categorias (id, nombre, icono) VALUES (?,?,?)", c);
   }
 
   const espacios = [
@@ -482,7 +389,7 @@ function seed() {
   ];
 
   for (const e of espacios) {
-    run(
+    await run(
       `INSERT INTO espacios (
         id, arrendador_id, nombre, direccion, ciudad, descripcion, imagenes,
         servicios_incluidos, precio_hora, precio_dia, capacidad, categoria_id,
@@ -518,21 +425,21 @@ function seed() {
     ["RES007", "ESP001", "USR003", "USR002", "2026-01-06", "2026-01-06", "completada", 1500, "2026-01-01", 3, "10:00 AM", "1:00 PM", 0],
   ];
   for (const r of reservas) {
-    run(
+    await run(
       `INSERT INTO reservas (
         id, espacio_id, usuario_arrendatario_id, usuario_arrendador_id,
         fecha_inicio, fecha_fin, estado, precio_total, fecha_creacion,
         cantidad_personas, hora_inicio, hora_fin, resena_dejada
       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      r
+      r as SqlValue[]
     );
   }
 
-  run("INSERT INTO favoritos VALUES (?,?,?,?)", ["FAV001", "USR001", "ESP001", "2024-06-10"]);
-  run("INSERT INTO favoritos VALUES (?,?,?,?)", ["FAV002", "USR001", "ESP002", "2024-06-12"]);
-  run("INSERT INTO favoritos VALUES (?,?,?,?)", ["FAV003", "USR003", "ESP001", "2024-06-08"]);
+  await run("INSERT INTO favoritos VALUES (?,?,?,?)", ["FAV001", "USR001", "ESP001", "2024-06-10"]);
+  await run("INSERT INTO favoritos VALUES (?,?,?,?)", ["FAV002", "USR001", "ESP002", "2024-06-12"]);
+  await run("INSERT INTO favoritos VALUES (?,?,?,?)", ["FAV003", "USR003", "ESP001", "2024-06-08"]);
 
-  const planes = [
+  const planes: SqlValue[][] = [
     [
       "SUB001",
       "Plan Premium",
@@ -605,7 +512,7 @@ function seed() {
     ],
   ];
   for (const p of planes) {
-    run(
+    await run(
       `INSERT INTO suscripciones (
         id, nombre, descripcion, tipo, precio_mensual, precio_anual, duracion, beneficios, estado, comision_pct
       ) VALUES (?,?,?,?,?,?,?,?,?,?)`,
@@ -613,20 +520,51 @@ function seed() {
     );
   }
 
-  run(
-    "INSERT INTO suscripciones_usuario VALUES (?,?,?,?,?,?,?)",
-    ["SU001", "USR002", "SUB001", "2026-01-01", "2026-12-31", "activa", 1]
-  );
-  run(
-    "INSERT INTO suscripciones_usuario VALUES (?,?,?,?,?,?,?)",
-    ["SU002", "USR001", "SUB003", "2026-01-01", "2026-12-31", "activa", 1]
-  );
+  await run("INSERT INTO suscripciones_usuario VALUES (?,?,?,?,?,?,?)", [
+    "SU001",
+    "USR002",
+    "SUB001",
+    "2026-01-01",
+    "2026-12-31",
+    "activa",
+    1,
+  ]);
+  await run("INSERT INTO suscripciones_usuario VALUES (?,?,?,?,?,?,?)", [
+    "SU002",
+    "USR001",
+    "SUB003",
+    "2026-01-01",
+    "2026-12-31",
+    "activa",
+    1,
+  ]);
 
-  run("INSERT INTO tarjetas VALUES (?,?,?,?,?,?)", ["TAR001", "USR001", "7845", "JUAN PEREZ", "Débito", 1]);
-  run("INSERT INTO tarjetas VALUES (?,?,?,?,?,?)", ["TAR002", "USR001", "4195", "JUAN PEREZ", "Débito", 0]);
-  run("INSERT INTO tarjetas VALUES (?,?,?,?,?,?)", ["TAR003", "USR001", "3156", "JUAN PEREZ", "Crédito", 0]);
+  await run("INSERT INTO tarjetas VALUES (?,?,?,?,?,?)", [
+    "TAR001",
+    "USR001",
+    "7845",
+    "JUAN PEREZ",
+    "Débito",
+    1,
+  ]);
+  await run("INSERT INTO tarjetas VALUES (?,?,?,?,?,?)", [
+    "TAR002",
+    "USR001",
+    "4195",
+    "JUAN PEREZ",
+    "Débito",
+    0,
+  ]);
+  await run("INSERT INTO tarjetas VALUES (?,?,?,?,?,?)", [
+    "TAR003",
+    "USR001",
+    "3156",
+    "JUAN PEREZ",
+    "Crédito",
+    0,
+  ]);
 
-  const faqs = [
+  const faqs: SqlValue[][] = [
     ["FAQ001", "¿Qué es Prisma?", "Prisma es un marketplace que conecta a personas y empresas con espacios de coworking disponibles para renta.", 1],
     ["FAQ002", "¿Cómo funciona?", "Solo debes buscar el espacio que necesitas, filtrar según tus preferencias y realizar la reserva directamente desde la plataforma.", 2],
     ["FAQ003", "¿Necesito una suscripción?", "Sí, debes registrarte y crear una cuenta para suscribirte al plan que se ajuste a tus necesidades.", 3],
@@ -635,10 +573,10 @@ function seed() {
     ["FAQ006", "¿Puedo cancelar una reserva?", "Sí. Las cancelaciones dependen de las políticas de cada espacio.", 6],
   ];
   for (const f of faqs) {
-    run("INSERT INTO faqs (id, pregunta, respuesta, orden) VALUES (?,?,?,?)", f);
+    await run("INSERT INTO faqs (id, pregunta, respuesta, orden) VALUES (?,?,?,?)", f);
   }
 
-  const politicasArrendador = [
+  const politicas: SqlValue[][] = [
     ["POLA1", "arrendador", "Publicación de espacios", "Debes publicar información veraz sobre tus espacios, incluyendo fotos, precios, capacidad y servicios. Prisma puede retirar publicaciones engañosas.", 1],
     ["POLA2", "arrendador", "Disponibilidad y Reservas", "Mantén actualizada la disponibilidad. Al aceptar una reserva te comprometes a entregar el espacio en las condiciones publicadas.", 2],
     ["POLA3", "arrendador", "Condiciones del Espacio", "El espacio debe estar limpio, seguro y operativo. Reporta mantenimientos con anticipación a los arrendatarios afectados.", 3],
@@ -647,8 +585,6 @@ function seed() {
     ["POLA6", "arrendador", "Atención al Cliente", "Debes responder consultas de arrendatarios en un plazo razonable y brindar soporte durante la reserva.", 6],
     ["POLA7", "arrendador", "Seguridad y Legalidad", "Cumple la normativa local, permisos y medidas de seguridad del inmueble. Prisma no se hace responsable de incumplimientos legales del arrendador.", 7],
     ["POLA8", "arrendador", "Incumplimientos", "El incumplimiento reiterado de estas políticas puede resultar en suspensión o cierre de la cuenta.", 8],
-  ];
-  const politicasArrendatario = [
     ["POLT1", "arrendatario", "Uso del espacio", "Utiliza el espacio solo para los fines acordados y respeta las normas del lugar y de otros usuarios.", 1],
     ["POLT2", "arrendatario", "Reservas y pagos", "Las reservas confirmadas deben pagarse según el método seleccionado. Los cargos indebidos pueden reportarse a soporte.", 2],
     ["POLT3", "arrendatario", "Cancelaciones", "Puedes cancelar según la política del espacio. Cancelaciones tardías pueden no ser reembolsables.", 3],
@@ -656,24 +592,26 @@ function seed() {
     ["POLT5", "arrendatario", "Conducta", "Se prohíbe el acoso, actividades ilegales o que pongan en riesgo a otros usuarios.", 5],
     ["POLT6", "arrendatario", "Privacidad", "Tus datos se usan para operar la plataforma. Consulta la política de privacidad completa en soporte.", 6],
   ];
-  for (const p of [...politicasArrendador, ...politicasArrendatario]) {
-    run("INSERT INTO politicas (id, rol, titulo, contenido, orden) VALUES (?,?,?,?,?)", p);
+  for (const p of politicas) {
+    await run(
+      "INSERT INTO politicas (id, rol, titulo, contenido, orden) VALUES (?,?,?,?,?)",
+      p
+    );
   }
 
-  run("INSERT INTO counters VALUES ('usuarios', 4)");
-  run("INSERT INTO counters VALUES ('espacios', 3)");
-  run("INSERT INTO counters VALUES ('reservas', 7)");
-  run("INSERT INTO counters VALUES ('favoritos', 3)");
-  run("INSERT INTO counters VALUES ('tarjetas', 3)");
-  run("INSERT INTO counters VALUES ('resenas', 0)");
-  run("INSERT INTO counters VALUES ('suscripciones_usuario', 2)");
-  run("INSERT INTO counters VALUES ('contactos', 0)");
+  await run("INSERT INTO counters VALUES ('usuarios', 4)");
+  await run("INSERT INTO counters VALUES ('espacios', 3)");
+  await run("INSERT INTO counters VALUES ('reservas', 7)");
+  await run("INSERT INTO counters VALUES ('favoritos', 3)");
+  await run("INSERT INTO counters VALUES ('tarjetas', 3)");
+  await run("INSERT INTO counters VALUES ('resenas', 0)");
+  await run("INSERT INTO counters VALUES ('suscripciones_usuario', 2)");
+  await run("INSERT INTO counters VALUES ('contactos', 0)");
 
-  persist();
   console.log("[db] Seed completado");
 }
 
-export type UsuarioRow = Record<string, unknown>;
+export type UsuarioRow = Row;
 
 export function mapUsuario(row: UsuarioRow | null) {
   if (!row) return null;
@@ -716,7 +654,7 @@ export function mapUsuario(row: UsuarioRow | null) {
   };
 }
 
-export function mapEspacio(row: Record<string, unknown>) {
+export function mapEspacio(row: Row) {
   return {
     id: row.id as string,
     arrendadorId: row.arrendador_id as string,
@@ -737,7 +675,7 @@ export function mapEspacio(row: Record<string, unknown>) {
   };
 }
 
-export function mapReserva(row: Record<string, unknown>) {
+export function mapReserva(row: Row) {
   return {
     id: row.id as string,
     espacioId: row.espacio_id as string,
@@ -755,20 +693,24 @@ export function mapReserva(row: Record<string, unknown>) {
   };
 }
 
-export async function initDb() {
-  const SQL = await initSqlJs({
-    locateFile: () => WASM_PATH,
-  });
-
-  if (fs.existsSync(DB_PATH)) {
-    const fileBuffer = fs.readFileSync(DB_PATH);
-    db = new SQL.Database(fileBuffer);
-    console.log("[db] Cargada desde", DB_PATH);
-  } else {
-    db = new SQL.Database();
-    console.log("[db] Nueva base de datos");
+export async function initDb(): Promise<void> {
+  if (!initPromise) {
+    initPromise = (async () => {
+      getClient();
+      await applySchema();
+      await seed();
+      console.log(
+        "[db] Lista:",
+        resolveDbUrl().startsWith("file:") ? "local file" : "turso remote"
+      );
+    })().catch((err) => {
+      initPromise = null;
+      throw err;
+    });
   }
+  await initPromise;
+}
 
-  createSchema();
-  seed();
+export async function ensureDb(): Promise<void> {
+  await initDb();
 }

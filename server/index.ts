@@ -1,16 +1,16 @@
+import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import bcrypt from "bcryptjs";
 import {
-  initDb,
+  ensureDb,
   queryAll,
   queryOne,
-  persist,
+  run,
   nextId,
   mapUsuario,
   mapEspacio,
   mapReserva,
-  getDb,
 } from "./db.js";
 import { requireAuth, signToken, type AuthRequest } from "./middleware/auth.js";
 
@@ -20,18 +20,24 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: "2mb" }));
 
-function run(sql: string, params: unknown[] = []) {
-  getDb().run(sql, params as never[]);
-}
+app.use(async (_req, res, next) => {
+  try {
+    await ensureDb();
+    next();
+  } catch (err) {
+    console.error("[db] init error", err);
+    res.status(500).json({ error: "Error de base de datos" });
+  }
+});
 
-// ─── Auth ───────────────────────────────────────────────
-app.post("/api/auth/login", (req, res) => {
+// --- Auth ---
+app.post("/api/auth/login", async (req, res) => {
   const correo = String(req.body.correo ?? "").trim().toLowerCase();
   const password = String(req.body.password ?? "");
   if (!correo || !password) {
     return res.status(400).json({ error: "Correo y contraseña requeridos" });
   }
-  const row = queryOne("SELECT * FROM usuarios WHERE lower(correo) = ?", [correo]);
+  const row = await queryOne("SELECT * FROM usuarios WHERE lower(correo) = ?", [correo]);
   if (!row || !bcrypt.compareSync(password, row.password_hash as string)) {
     return res.status(401).json({ error: "Correo o contraseña incorrectos" });
   }
@@ -40,22 +46,22 @@ app.post("/api/auth/login", (req, res) => {
   res.json({ token, usuario });
 });
 
-app.post("/api/auth/register", (req, res) => {
+app.post("/api/auth/register", async (req, res) => {
   const b = req.body ?? {};
   const correo = String(b.correo ?? "").trim().toLowerCase();
   const password = String(b.password ?? "");
   if (!correo || !password || password.length < 6) {
     return res.status(400).json({ error: "Correo y contraseña (mín. 6) requeridos" });
   }
-  const exists = queryOne("SELECT id FROM usuarios WHERE lower(correo) = ?", [correo]);
+  const exists = await queryOne("SELECT id FROM usuarios WHERE lower(correo) = ?", [correo]);
   if (exists) return res.status(409).json({ error: "El correo ya está registrado" });
 
-  const id = nextId("USR", "usuarios");
+  const id = await nextId("USR", "usuarios");
   const fecha = new Date().toISOString().split("T")[0];
   const hash = bcrypt.hashSync(password, 8);
   const rol = b.rol === "arrendador" ? "arrendador" : "arrendatario";
 
-  run(
+  await run(
     `INSERT INTO usuarios (
       id, nombres, apellidos, correo, password_hash, usuarios, telefono, rol,
       fecha_registro, ocupacion, empresa, descripcion, tipo_arrendador,
@@ -102,31 +108,30 @@ app.post("/api/auth/register", (req, res) => {
       b.fotoPerfil ?? null,
     ]
   );
-  run("INSERT INTO preferencias (usuario_id) VALUES (?)", [id]);
+  await run("INSERT INTO preferencias (usuario_id) VALUES (?)", [id]);
 
-  // Plan básico gratis para arrendadores nuevos
+  // Plan b├ísico gratis para arrendadores nuevos
   if (rol === "arrendador") {
-    const suId = nextId("SU", "suscripciones_usuario");
-    run(
+    const suId = await nextId("SU", "suscripciones_usuario");
+    await run(
       "INSERT INTO suscripciones_usuario VALUES (?,?,?,?,?,?,?)",
       [suId, id, "SUB002", fecha, null, "activa", 1]
     );
   }
 
-  persist();
-  const row = queryOne("SELECT * FROM usuarios WHERE id = ?", [id]);
+  const row = await queryOne("SELECT * FROM usuarios WHERE id = ?", [id]);
   const usuario = mapUsuario(row)!;
   const token = signToken({ id: usuario.id, rol: usuario.rol, correo: usuario.correo });
   res.status(201).json({ token, usuario });
 });
 
-app.get("/api/auth/me", requireAuth, (req: AuthRequest, res) => {
-  const row = queryOne("SELECT * FROM usuarios WHERE id = ?", [req.user!.id]);
+app.get("/api/auth/me", requireAuth, async (req: AuthRequest, res) => {
+  const row = await queryOne("SELECT * FROM usuarios WHERE id = ?", [req.user!.id]);
   if (!row) return res.status(404).json({ error: "Usuario no encontrado" });
   res.json({ usuario: mapUsuario(row) });
 });
 
-app.put("/api/auth/perfil", requireAuth, (req: AuthRequest, res) => {
+app.put("/api/auth/perfil", requireAuth, async (req: AuthRequest, res) => {
   const b = req.body ?? {};
   const fields: [string, unknown][] = [
     ["nombres", b.nombres],
@@ -169,19 +174,18 @@ app.put("/api/auth/perfil", requireAuth, (req: AuthRequest, res) => {
   }
   if (sets.length === 0) return res.status(400).json({ error: "Sin cambios" });
   vals.push(req.user!.id);
-  run(`UPDATE usuarios SET ${sets.join(", ")} WHERE id = ?`, vals);
-  persist();
-  const row = queryOne("SELECT * FROM usuarios WHERE id = ?", [req.user!.id]);
+  await run(`UPDATE usuarios SET ${sets.join(", ")} WHERE id = ?`, vals);
+  const row = await queryOne("SELECT * FROM usuarios WHERE id = ?", [req.user!.id]);
   res.json({ usuario: mapUsuario(row) });
 });
 
-// ─── Categorías ─────────────────────────────────────────
-app.get("/api/categorias", (_req, res) => {
-  res.json(queryAll("SELECT id, nombre, icono FROM categorias ORDER BY id"));
+// --- Categorias ---
+app.get("/api/categorias", async (_req, res) => {
+  res.json(await queryAll("SELECT id, nombre, icono FROM categorias ORDER BY id"));
 });
 
-// ─── Espacios ───────────────────────────────────────────
-app.get("/api/espacios", (req, res) => {
+// --- Espacios ---
+app.get("/api/espacios", async (req, res) => {
   const q = String(req.query.q ?? "").trim().toLowerCase();
   const categoriaId = String(req.query.categoriaId ?? "");
   const ciudad = String(req.query.ciudad ?? "").trim().toLowerCase();
@@ -201,31 +205,32 @@ app.get("/api/espacios", (req, res) => {
     params.push(`%${ciudad}%`);
   }
   sql += " ORDER BY fecha_creacion DESC";
-  res.json(queryAll(sql, params).map(mapEspacio));
+  const rows = await queryAll(sql, params);
+  res.json(rows.map(mapEspacio));
 });
 
-app.get("/api/espacios/mios", requireAuth, (req: AuthRequest, res) => {
-  const rows = queryAll(
+app.get("/api/espacios/mios", requireAuth, async (req: AuthRequest, res) => {
+  const rows = await queryAll(
     "SELECT * FROM espacios WHERE arrendador_id = ? ORDER BY fecha_creacion DESC",
     [req.user!.id]
   );
   res.json(rows.map(mapEspacio));
 });
 
-app.get("/api/espacios/:id", (req, res) => {
-  const row = queryOne("SELECT * FROM espacios WHERE id = ?", [req.params.id]);
+app.get("/api/espacios/:id", async (req, res) => {
+  const row = await queryOne("SELECT * FROM espacios WHERE id = ?", [req.params.id]);
   if (!row) return res.status(404).json({ error: "Espacio no encontrado" });
   res.json(mapEspacio(row));
 });
 
-app.post("/api/espacios", requireAuth, (req: AuthRequest, res) => {
+app.post("/api/espacios", requireAuth, async (req: AuthRequest, res) => {
   if (req.user!.rol !== "arrendador") {
     return res.status(403).json({ error: "Solo arrendadores pueden publicar espacios" });
   }
   const b = req.body ?? {};
-  const id = nextId("ESP", "espacios");
+  const id = await nextId("ESP", "espacios");
   const fecha = new Date().toISOString().split("T")[0];
-  run(
+  await run(
     `INSERT INTO espacios (
       id, arrendador_id, nombre, direccion, ciudad, descripcion, imagenes,
       servicios_incluidos, precio_hora, precio_dia, capacidad, categoria_id,
@@ -247,19 +252,18 @@ app.post("/api/espacios", requireAuth, (req: AuthRequest, res) => {
       fecha,
     ]
   );
-  persist();
-  const row = queryOne("SELECT * FROM espacios WHERE id = ?", [id]);
+  const row = await queryOne("SELECT * FROM espacios WHERE id = ?", [id]);
   res.status(201).json(mapEspacio(row!));
 });
 
-app.put("/api/espacios/:id", requireAuth, (req: AuthRequest, res) => {
-  const existing = queryOne("SELECT * FROM espacios WHERE id = ?", [req.params.id]);
+app.put("/api/espacios/:id", requireAuth, async (req: AuthRequest, res) => {
+  const existing = await queryOne("SELECT * FROM espacios WHERE id = ?", [req.params.id]);
   if (!existing) return res.status(404).json({ error: "Espacio no encontrado" });
   if (existing.arrendador_id !== req.user!.id) {
     return res.status(403).json({ error: "No autorizado" });
   }
   const b = req.body ?? {};
-  run(
+  await run(
     `UPDATE espacios SET
       nombre = ?, direccion = ?, ciudad = ?, descripcion = ?, imagenes = ?,
       servicios_incluidos = ?, precio_hora = ?, precio_dia = ?, capacidad = ?,
@@ -282,62 +286,58 @@ app.put("/api/espacios/:id", requireAuth, (req: AuthRequest, res) => {
       req.params.id,
     ]
   );
-  persist();
-  const row = queryOne("SELECT * FROM espacios WHERE id = ?", [req.params.id]);
+  const row = await queryOne("SELECT * FROM espacios WHERE id = ?", [req.params.id]);
   res.json(mapEspacio(row!));
 });
 
-app.delete("/api/espacios/:id", requireAuth, (req: AuthRequest, res) => {
-  const existing = queryOne("SELECT * FROM espacios WHERE id = ?", [req.params.id]);
+app.delete("/api/espacios/:id", requireAuth, async (req: AuthRequest, res) => {
+  const existing = await queryOne("SELECT * FROM espacios WHERE id = ?", [req.params.id]);
   if (!existing) return res.status(404).json({ error: "Espacio no encontrado" });
   if (existing.arrendador_id !== req.user!.id) {
     return res.status(403).json({ error: "No autorizado" });
   }
-  run("DELETE FROM favoritos WHERE espacio_id = ?", [req.params.id]);
-  run("DELETE FROM espacios WHERE id = ?", [req.params.id]);
-  persist();
+  await run("DELETE FROM favoritos WHERE espacio_id = ?", [req.params.id]);
+  await run("DELETE FROM espacios WHERE id = ?", [req.params.id]);
   res.json({ ok: true });
 });
 
-// ─── Favoritos ──────────────────────────────────────────
-app.get("/api/favoritos", requireAuth, (req: AuthRequest, res) => {
-  const rows = queryAll(
+// --- Favoritos ---
+app.get("/api/favoritos", requireAuth, async (req: AuthRequest, res) => {
+  const rows = await queryAll(
     "SELECT id, usuario_id as usuarioId, espacio_id as espacioId, fecha_guardado as fechaGuardado FROM favoritos WHERE usuario_id = ?",
     [req.user!.id]
   );
   res.json(rows);
 });
 
-app.post("/api/favoritos/toggle", requireAuth, (req: AuthRequest, res) => {
+app.post("/api/favoritos/toggle", requireAuth, async (req: AuthRequest, res) => {
   const espacioId = String(req.body.espacioId ?? "");
   if (!espacioId) return res.status(400).json({ error: "espacioId requerido" });
-  const existing = queryOne(
+  const existing = await queryOne(
     "SELECT id FROM favoritos WHERE usuario_id = ? AND espacio_id = ?",
     [req.user!.id, espacioId]
   );
   if (existing) {
-    run("DELETE FROM favoritos WHERE id = ?", [existing.id]);
-    persist();
+    await run("DELETE FROM favoritos WHERE id = ?", [existing.id]);
     return res.json({ favorito: false });
   }
-  const id = nextId("FAV", "favoritos");
+  const id = await nextId("FAV", "favoritos");
   const fecha = new Date().toISOString().split("T")[0];
-  run("INSERT INTO favoritos VALUES (?,?,?,?)", [id, req.user!.id, espacioId, fecha]);
-  persist();
+  await run("INSERT INTO favoritos VALUES (?,?,?,?)", [id, req.user!.id, espacioId, fecha]);
   res.json({ favorito: true, id });
 });
 
-// ─── Reservas ───────────────────────────────────────────
-app.get("/api/reservas", requireAuth, (req: AuthRequest, res) => {
+// --- Resenas ---
+app.get("/api/reservas", requireAuth, async (req: AuthRequest, res) => {
   const user = req.user!;
   let rows;
   if (user.rol === "arrendador") {
-    rows = queryAll(
+    rows = await queryAll(
       "SELECT * FROM reservas WHERE usuario_arrendador_id = ? ORDER BY fecha_inicio DESC",
       [user.id]
     );
   } else {
-    rows = queryAll(
+    rows = await queryAll(
       "SELECT * FROM reservas WHERE usuario_arrendatario_id = ? ORDER BY fecha_inicio DESC",
       [user.id]
     );
@@ -345,11 +345,11 @@ app.get("/api/reservas", requireAuth, (req: AuthRequest, res) => {
   res.json(rows.map(mapReserva));
 });
 
-app.get("/api/arrendador/reservas", requireAuth, (req: AuthRequest, res) => {
+app.get("/api/arrendador/reservas", requireAuth, async (req: AuthRequest, res) => {
   if (req.user!.rol !== "arrendador") {
     return res.status(403).json({ error: "Solo arrendadores" });
   }
-  const rows = queryAll(
+  const rows = await queryAll(
     `SELECT r.*, e.nombre as espacio_nombre, e.direccion as espacio_direccion,
             e.ciudad as espacio_ciudad, e.descripcion as espacio_descripcion,
             e.imagenes as espacio_imagenes,
@@ -387,13 +387,13 @@ app.get("/api/arrendador/reservas", requireAuth, (req: AuthRequest, res) => {
   res.json({ reservas: mapped, contadores });
 });
 
-app.post("/api/reservas", requireAuth, (req: AuthRequest, res) => {
+app.post("/api/reservas", requireAuth, async (req: AuthRequest, res) => {
   const b = req.body ?? {};
-  const espacio = queryOne("SELECT * FROM espacios WHERE id = ?", [b.espacioId]);
+  const espacio = await queryOne("SELECT * FROM espacios WHERE id = ?", [b.espacioId]);
   if (!espacio) return res.status(404).json({ error: "Espacio no encontrado" });
-  const id = nextId("RES", "reservas");
+  const id = await nextId("RES", "reservas");
   const fecha = new Date().toISOString().split("T")[0];
-  run(
+  await run(
     `INSERT INTO reservas (
       id, espacio_id, usuario_arrendatario_id, usuario_arrendador_id,
       fecha_inicio, fecha_fin, estado, precio_total, fecha_creacion,
@@ -414,13 +414,12 @@ app.post("/api/reservas", requireAuth, (req: AuthRequest, res) => {
       b.horaFin ?? null,
     ]
   );
-  persist();
-  const row = queryOne("SELECT * FROM reservas WHERE id = ?", [id]);
+  const row = await queryOne("SELECT * FROM reservas WHERE id = ?", [id]);
   res.status(201).json(mapReserva(row!));
 });
 
-app.patch("/api/reservas/:id/cancelar", requireAuth, (req: AuthRequest, res) => {
-  const row = queryOne("SELECT * FROM reservas WHERE id = ?", [req.params.id]);
+app.patch("/api/reservas/:id/cancelar", requireAuth, async (req: AuthRequest, res) => {
+  const row = await queryOne("SELECT * FROM reservas WHERE id = ?", [req.params.id]);
   if (!row) return res.status(404).json({ error: "Reserva no encontrada" });
   if (
     row.usuario_arrendatario_id !== req.user!.id &&
@@ -428,23 +427,22 @@ app.patch("/api/reservas/:id/cancelar", requireAuth, (req: AuthRequest, res) => 
   ) {
     return res.status(403).json({ error: "No autorizado" });
   }
-  run("UPDATE reservas SET estado = 'cancelada' WHERE id = ?", [req.params.id]);
-  persist();
-  const updated = queryOne("SELECT * FROM reservas WHERE id = ?", [req.params.id]);
+  await run("UPDATE reservas SET estado = 'cancelada' WHERE id = ?", [req.params.id]);
+  const updated = await queryOne("SELECT * FROM reservas WHERE id = ?", [req.params.id]);
   res.json(mapReserva(updated!));
 });
 
-// ─── Reseñas ────────────────────────────────────────────
-app.post("/api/reservas/:id/resena", requireAuth, (req: AuthRequest, res) => {
-  const reserva = queryOne("SELECT * FROM reservas WHERE id = ?", [req.params.id]);
+// --- Resenas ---
+app.post("/api/reservas/:id/resena", requireAuth, async (req: AuthRequest, res) => {
+  const reserva = await queryOne("SELECT * FROM reservas WHERE id = ?", [req.params.id]);
   if (!reserva) return res.status(404).json({ error: "Reserva no encontrada" });
   if (reserva.usuario_arrendatario_id !== req.user!.id) {
     return res.status(403).json({ error: "No autorizado" });
   }
   const b = req.body ?? {};
-  const id = nextId("REV", "resenas");
+  const id = await nextId("REV", "resenas");
   const fecha = new Date().toISOString().split("T")[0];
-  run(
+  await run(
     "INSERT INTO resenas (id, espacio_id, usuario_id, reserva_id, calificacion, comentario, fecha, tipos_etiquetas) VALUES (?,?,?,?,?,?,?,?)",
     [
       id,
@@ -457,65 +455,62 @@ app.post("/api/reservas/:id/resena", requireAuth, (req: AuthRequest, res) => {
       JSON.stringify(b.tiposEtiquetas ?? []),
     ]
   );
-  run("UPDATE reservas SET resena_dejada = 1 WHERE id = ?", [reserva.id]);
+  await run("UPDATE reservas SET resena_dejada = 1 WHERE id = ?", [reserva.id]);
 
   const stats = queryOne<{ avg: number; c: number }>(
     "SELECT AVG(calificacion) as avg, COUNT(*) as c FROM resenas WHERE espacio_id = ?",
     [reserva.espacio_id]
   );
   if (stats) {
-    run("UPDATE espacios SET calificacion = ?, total_resenas = ? WHERE id = ?", [
+    await run("UPDATE espacios SET calificacion = ?, total_resenas = ? WHERE id = ?", [
       Math.round((stats.avg ?? 0) * 10) / 10,
       stats.c,
       reserva.espacio_id,
     ]);
   }
-  persist();
   res.status(201).json({ id, ok: true });
 });
 
-// ─── Tarjetas ───────────────────────────────────────────
-app.get("/api/tarjetas", requireAuth, (req: AuthRequest, res) => {
-  const rows = queryAll(
+// --- Tarjetas ---
+app.get("/api/tarjetas", requireAuth, async (req: AuthRequest, res) => {
+  const rows = await queryAll(
     "SELECT id, last4, nombre, tipo, es_principal as esPrincipal FROM tarjetas WHERE usuario_id = ?",
     [req.user!.id]
   );
   res.json(rows);
 });
 
-app.post("/api/tarjetas", requireAuth, (req: AuthRequest, res) => {
+app.post("/api/tarjetas", requireAuth, async (req: AuthRequest, res) => {
   const b = req.body ?? {};
-  const id = nextId("TAR", "tarjetas");
+  const id = await nextId("TAR", "tarjetas");
   const count = queryOne<{ c: number }>(
     "SELECT COUNT(*) as c FROM tarjetas WHERE usuario_id = ?",
     [req.user!.id]
   );
   const esPrincipal = (count?.c ?? 0) === 0 ? 1 : 0;
-  run("INSERT INTO tarjetas VALUES (?,?,?,?,?,?)", [
+  await run("INSERT INTO tarjetas VALUES (?,?,?,?,?,?)", [
     id,
     req.user!.id,
     b.last4 ?? "0000",
     b.nombre ?? "",
-    b.tipo ?? "Débito",
+    b.tipo ?? "D├®bito",
     esPrincipal,
   ]);
-  persist();
-  res.status(201).json({ id, last4: b.last4, nombre: b.nombre, tipo: b.tipo ?? "Débito" });
+  res.status(201).json({ id, last4: b.last4, nombre: b.nombre, tipo: b.tipo ?? "D├®bito" });
 });
 
-app.delete("/api/tarjetas/:id", requireAuth, (req: AuthRequest, res) => {
-  const row = queryOne("SELECT * FROM tarjetas WHERE id = ? AND usuario_id = ?", [
+app.delete("/api/tarjetas/:id", requireAuth, async (req: AuthRequest, res) => {
+  const row = await queryOne("SELECT * FROM tarjetas WHERE id = ? AND usuario_id = ?", [
     req.params.id,
     req.user!.id,
   ]);
   if (!row) return res.status(404).json({ error: "Tarjeta no encontrada" });
-  run("DELETE FROM tarjetas WHERE id = ?", [req.params.id]);
-  persist();
+  await run("DELETE FROM tarjetas WHERE id = ?", [req.params.id]);
   res.json({ ok: true });
 });
 
-// ─── Suscripciones ──────────────────────────────────────
-app.get("/api/suscripciones", (req, res) => {
+// --- Suscripciones ---
+app.get("/api/suscripciones", async (req, res) => {
   const tipo = String(req.query.tipo ?? "");
   let sql = "SELECT * FROM suscripciones WHERE estado = 'activa'";
   const params: unknown[] = [];
@@ -524,7 +519,8 @@ app.get("/api/suscripciones", (req, res) => {
     params.push(tipo);
   }
   sql += " ORDER BY precio_mensual DESC";
-  const rows = queryAll(sql, params).map((r) => ({
+  const raw = await queryAll(sql, params);
+  const rows = raw.map((r) => ({
     id: r.id,
     nombre: r.nombre,
     descripcion: r.descripcion,
@@ -539,8 +535,8 @@ app.get("/api/suscripciones", (req, res) => {
   res.json(rows);
 });
 
-app.get("/api/suscripciones/mia", requireAuth, (req: AuthRequest, res) => {
-  const row = queryOne(
+app.get("/api/suscripciones/mia", requireAuth, async (req: AuthRequest, res) => {
+  const row = await queryOne(
     `SELECT su.*, s.nombre, s.descripcion, s.tipo, s.precio_mensual, s.precio_anual,
             s.duracion, s.beneficios, s.comision_pct
      FROM suscripciones_usuario su
@@ -572,22 +568,22 @@ app.get("/api/suscripciones/mia", requireAuth, (req: AuthRequest, res) => {
   });
 });
 
-app.post("/api/suscripciones/contratar", requireAuth, (req: AuthRequest, res) => {
+app.post("/api/suscripciones/contratar", requireAuth, async (req: AuthRequest, res) => {
   const suscripcionId = String(req.body.suscripcionId ?? "");
-  const plan = queryOne("SELECT * FROM suscripciones WHERE id = ?", [suscripcionId]);
+  const plan = await queryOne("SELECT * FROM suscripciones WHERE id = ?", [suscripcionId]);
   if (!plan) return res.status(404).json({ error: "Plan no encontrado" });
   if (plan.tipo !== req.user!.rol) {
     return res.status(400).json({ error: "Este plan no aplica a tu tipo de cuenta" });
   }
-  run(
+  await run(
     "UPDATE suscripciones_usuario SET estado = 'cancelada' WHERE usuario_id = ? AND estado = 'activa'",
     [req.user!.id]
   );
-  const id = nextId("SU", "suscripciones_usuario");
+  const id = await nextId("SU", "suscripciones_usuario");
   const fecha = new Date().toISOString().split("T")[0];
   const fin = new Date();
   fin.setMonth(fin.getMonth() + (plan.duracion === "anual" ? 12 : 1));
-  run("INSERT INTO suscripciones_usuario VALUES (?,?,?,?,?,?,?)", [
+  await run("INSERT INTO suscripciones_usuario VALUES (?,?,?,?,?,?,?)", [
     id,
     req.user!.id,
     suscripcionId,
@@ -596,16 +592,15 @@ app.post("/api/suscripciones/contratar", requireAuth, (req: AuthRequest, res) =>
     "activa",
     1,
   ]);
-  persist();
   res.status(201).json({ ok: true, id });
 });
 
-// ─── Ingresos arrendador ────────────────────────────────
-app.get("/api/arrendador/ingresos", requireAuth, (req: AuthRequest, res) => {
+// --- Ingresos ---
+app.get("/api/arrendador/ingresos", requireAuth, async (req: AuthRequest, res) => {
   if (req.user!.rol !== "arrendador") {
     return res.status(403).json({ error: "Solo arrendadores" });
   }
-  const planRow = queryOne(
+  const planRow = await queryOne(
     `SELECT s.comision_pct FROM suscripciones_usuario su
      JOIN suscripciones s ON s.id = su.suscripcion_id
      WHERE su.usuario_id = ? AND su.estado = 'activa' LIMIT 1`,
@@ -613,7 +608,7 @@ app.get("/api/arrendador/ingresos", requireAuth, (req: AuthRequest, res) => {
   );
   const comisionPct = Number(planRow?.comision_pct ?? 7);
 
-  const rows = queryAll(
+  const rows = await queryAll(
     `SELECT r.*, e.nombre as espacio_nombre,
             u.nombres as arrendatario_nombres, u.apellidos as arrendatario_apellidos
      FROM reservas r
@@ -653,31 +648,31 @@ app.get("/api/arrendador/ingresos", requireAuth, (req: AuthRequest, res) => {
   });
 });
 
-// ─── Contenido ──────────────────────────────────────────
-app.get("/api/faqs", (_req, res) => {
+// ÔöÇÔöÇÔöÇ Contenido ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+app.get("/api/faqs", async (_req, res) => {
   res.json(
-    queryAll("SELECT id, pregunta, respuesta, orden FROM faqs ORDER BY orden ASC")
+    await queryAll("SELECT id, pregunta, respuesta, orden FROM faqs ORDER BY orden ASC")
   );
 });
 
-app.get("/api/politicas", (req, res) => {
+app.get("/api/politicas", async (req, res) => {
   const rol = String(req.query.rol ?? "arrendatario");
   res.json(
-    queryAll(
+    await queryAll(
       "SELECT id, rol, titulo, contenido, orden FROM politicas WHERE rol = ? ORDER BY orden ASC",
       [rol]
     )
   );
 });
 
-app.post("/api/contacto", (req, res) => {
+app.post("/api/contacto", async (req, res) => {
   const b = req.body ?? {};
   if (!b.nombre || !b.correo || !b.mensaje) {
     return res.status(400).json({ error: "Nombre, correo y mensaje son requeridos" });
   }
-  const id = nextId("CON", "contactos");
+  const id = await nextId("CON", "contactos");
   const fecha = new Date().toISOString();
-  run("INSERT INTO contactos VALUES (?,?,?,?,?,?)", [
+  await run("INSERT INTO contactos VALUES (?,?,?,?,?,?)", [
     id,
     b.nombre,
     b.correo,
@@ -685,12 +680,11 @@ app.post("/api/contacto", (req, res) => {
     b.mensaje,
     fecha,
   ]);
-  persist();
   res.status(201).json({ ok: true, id });
 });
 
-app.get("/api/preferencias", requireAuth, (req: AuthRequest, res) => {
-  const row = queryOne("SELECT * FROM preferencias WHERE usuario_id = ?", [req.user!.id]);
+app.get("/api/preferencias", requireAuth, async (req: AuthRequest, res) => {
+  const row = await queryOne("SELECT * FROM preferencias WHERE usuario_id = ?", [req.user!.id]);
   res.json({
     notificaciones: Boolean(row?.notificaciones ?? 1),
     ofertas: Boolean(row?.ofertas ?? 1),
@@ -698,9 +692,9 @@ app.get("/api/preferencias", requireAuth, (req: AuthRequest, res) => {
   });
 });
 
-app.put("/api/preferencias", requireAuth, (req: AuthRequest, res) => {
+app.put("/api/preferencias", requireAuth, async (req: AuthRequest, res) => {
   const b = req.body ?? {};
-  run(
+  await run(
     `INSERT INTO preferencias (usuario_id, notificaciones, ofertas, newsletter)
      VALUES (?,?,?,?)
      ON CONFLICT(usuario_id) DO UPDATE SET
@@ -714,27 +708,29 @@ app.put("/api/preferencias", requireAuth, (req: AuthRequest, res) => {
       b.newsletter ? 1 : 0,
     ]
   );
-  persist();
   res.json({ ok: true });
 });
 
 // Lookup usuarios (para mostrar nombres en UI)
-app.get("/api/usuarios/:id", requireAuth, (req, res) => {
-  const row = queryOne("SELECT * FROM usuarios WHERE id = ?", [req.params.id]);
+app.get("/api/usuarios/:id", requireAuth, async (req, res) => {
+  const row = await queryOne("SELECT * FROM usuarios WHERE id = ?", [req.params.id]);
   if (!row) return res.status(404).json({ error: "No encontrado" });
   res.json(mapUsuario(row));
 });
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 
-async function main() {
-  await initDb();
-  app.listen(PORT, () => {
-    console.log(`[api] Prisma API en http://localhost:${PORT}`);
-  });
-}
+export default app;
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+if (!process.env.VERCEL) {
+  ensureDb()
+    .then(() => {
+      app.listen(PORT, () => {
+        console.log(`API Prisma en http://localhost:${PORT}`);
+      });
+    })
+    .catch((err) => {
+      console.error("Error iniciando DB", err);
+      process.exit(1);
+    });
+}
