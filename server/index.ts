@@ -1,0 +1,740 @@
+import express from "express";
+import cors from "cors";
+import bcrypt from "bcryptjs";
+import {
+  initDb,
+  queryAll,
+  queryOne,
+  persist,
+  nextId,
+  mapUsuario,
+  mapEspacio,
+  mapReserva,
+  getDb,
+} from "./db.js";
+import { requireAuth, signToken, type AuthRequest } from "./middleware/auth.js";
+
+const PORT = Number(process.env.PORT) || 3001;
+const app = express();
+
+app.use(cors());
+app.use(express.json({ limit: "2mb" }));
+
+function run(sql: string, params: unknown[] = []) {
+  getDb().run(sql, params as never[]);
+}
+
+// ─── Auth ───────────────────────────────────────────────
+app.post("/api/auth/login", (req, res) => {
+  const correo = String(req.body.correo ?? "").trim().toLowerCase();
+  const password = String(req.body.password ?? "");
+  if (!correo || !password) {
+    return res.status(400).json({ error: "Correo y contraseña requeridos" });
+  }
+  const row = queryOne("SELECT * FROM usuarios WHERE lower(correo) = ?", [correo]);
+  if (!row || !bcrypt.compareSync(password, row.password_hash as string)) {
+    return res.status(401).json({ error: "Correo o contraseña incorrectos" });
+  }
+  const usuario = mapUsuario(row)!;
+  const token = signToken({ id: usuario.id, rol: usuario.rol, correo: usuario.correo });
+  res.json({ token, usuario });
+});
+
+app.post("/api/auth/register", (req, res) => {
+  const b = req.body ?? {};
+  const correo = String(b.correo ?? "").trim().toLowerCase();
+  const password = String(b.password ?? "");
+  if (!correo || !password || password.length < 6) {
+    return res.status(400).json({ error: "Correo y contraseña (mín. 6) requeridos" });
+  }
+  const exists = queryOne("SELECT id FROM usuarios WHERE lower(correo) = ?", [correo]);
+  if (exists) return res.status(409).json({ error: "El correo ya está registrado" });
+
+  const id = nextId("USR", "usuarios");
+  const fecha = new Date().toISOString().split("T")[0];
+  const hash = bcrypt.hashSync(password, 8);
+  const rol = b.rol === "arrendador" ? "arrendador" : "arrendatario";
+
+  run(
+    `INSERT INTO usuarios (
+      id, nombres, apellidos, correo, password_hash, usuarios, telefono, rol,
+      fecha_registro, ocupacion, empresa, descripcion, tipo_arrendador,
+      numero_identidad, fecha_nacimiento, nombre_comercial, razon_social, rtn_empresa,
+      numero_registro_mercantil, giro_actividad_economica, fecha_constitucion,
+      representante_legal_nombre, representante_legal_identidad, representante_legal_cargo,
+      representante_legal_correo, representante_legal_telefono,
+      departamento, municipio, direccion_exacta, banco, tipo_cuenta, numero_cuenta, nombre_titular, foto_perfil
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [
+      id,
+      b.nombres ?? "",
+      b.apellidos ?? "",
+      correo,
+      hash,
+      b.usuarios || correo.split("@")[0],
+      b.telefono ?? "",
+      rol,
+      fecha,
+      b.ocupacion ?? null,
+      b.empresa ?? null,
+      b.descripcion ?? null,
+      b.tipoArrendador ?? null,
+      b.numeroIdentidad ?? null,
+      b.fechaNacimiento ?? null,
+      b.nombreComercial ?? null,
+      b.razonSocial ?? null,
+      b.rtnEmpresa ?? null,
+      b.numeroRegistroMercantil ?? null,
+      b.giroActividadEconomica ?? null,
+      b.fechaConstitucion ?? null,
+      b.representanteLegalNombre ?? null,
+      b.representanteLegalIdentidad ?? null,
+      b.representanteLegalCargo ?? null,
+      b.representanteLegalCorreo ?? null,
+      b.representanteLegalTelefono ?? null,
+      b.departamento ?? null,
+      b.municipio ?? null,
+      b.direccionExacta ?? null,
+      b.banco ?? null,
+      b.tipoCuenta ?? null,
+      b.numeroCuenta ?? null,
+      b.nombreTitular ?? null,
+      b.fotoPerfil ?? null,
+    ]
+  );
+  run("INSERT INTO preferencias (usuario_id) VALUES (?)", [id]);
+
+  // Plan básico gratis para arrendadores nuevos
+  if (rol === "arrendador") {
+    const suId = nextId("SU", "suscripciones_usuario");
+    run(
+      "INSERT INTO suscripciones_usuario VALUES (?,?,?,?,?,?,?)",
+      [suId, id, "SUB002", fecha, null, "activa", 1]
+    );
+  }
+
+  persist();
+  const row = queryOne("SELECT * FROM usuarios WHERE id = ?", [id]);
+  const usuario = mapUsuario(row)!;
+  const token = signToken({ id: usuario.id, rol: usuario.rol, correo: usuario.correo });
+  res.status(201).json({ token, usuario });
+});
+
+app.get("/api/auth/me", requireAuth, (req: AuthRequest, res) => {
+  const row = queryOne("SELECT * FROM usuarios WHERE id = ?", [req.user!.id]);
+  if (!row) return res.status(404).json({ error: "Usuario no encontrado" });
+  res.json({ usuario: mapUsuario(row) });
+});
+
+app.put("/api/auth/perfil", requireAuth, (req: AuthRequest, res) => {
+  const b = req.body ?? {};
+  const fields: [string, unknown][] = [
+    ["nombres", b.nombres],
+    ["apellidos", b.apellidos],
+    ["telefono", b.telefono],
+    ["usuarios", b.usuarios],
+    ["ocupacion", b.ocupacion],
+    ["empresa", b.empresa],
+    ["descripcion", b.descripcion],
+    ["foto_perfil", b.fotoPerfil],
+    ["numero_identidad", b.numeroIdentidad],
+    ["fecha_nacimiento", b.fechaNacimiento],
+    ["nombre_comercial", b.nombreComercial],
+    ["razon_social", b.razonSocial],
+    ["rtn_empresa", b.rtnEmpresa],
+    ["numero_registro_mercantil", b.numeroRegistroMercantil],
+    ["giro_actividad_economica", b.giroActividadEconomica],
+    ["fecha_constitucion", b.fechaConstitucion],
+    ["representante_legal_nombre", b.representanteLegalNombre],
+    ["representante_legal_identidad", b.representanteLegalIdentidad],
+    ["representante_legal_cargo", b.representanteLegalCargo],
+    ["representante_legal_correo", b.representanteLegalCorreo],
+    ["representante_legal_telefono", b.representanteLegalTelefono],
+    ["departamento", b.departamento],
+    ["municipio", b.municipio],
+    ["direccion_exacta", b.direccionExacta],
+    ["banco", b.banco],
+    ["tipo_cuenta", b.tipoCuenta],
+    ["numero_cuenta", b.numeroCuenta],
+    ["nombre_titular", b.nombreTitular],
+    ["rtn", b.rtn],
+  ];
+  const sets: string[] = [];
+  const vals: unknown[] = [];
+  for (const [col, val] of fields) {
+    if (val !== undefined) {
+      sets.push(`${col} = ?`);
+      vals.push(val);
+    }
+  }
+  if (sets.length === 0) return res.status(400).json({ error: "Sin cambios" });
+  vals.push(req.user!.id);
+  run(`UPDATE usuarios SET ${sets.join(", ")} WHERE id = ?`, vals);
+  persist();
+  const row = queryOne("SELECT * FROM usuarios WHERE id = ?", [req.user!.id]);
+  res.json({ usuario: mapUsuario(row) });
+});
+
+// ─── Categorías ─────────────────────────────────────────
+app.get("/api/categorias", (_req, res) => {
+  res.json(queryAll("SELECT id, nombre, icono FROM categorias ORDER BY id"));
+});
+
+// ─── Espacios ───────────────────────────────────────────
+app.get("/api/espacios", (req, res) => {
+  const q = String(req.query.q ?? "").trim().toLowerCase();
+  const categoriaId = String(req.query.categoriaId ?? "");
+  const ciudad = String(req.query.ciudad ?? "").trim().toLowerCase();
+  let sql = "SELECT * FROM espacios WHERE disponible = 1";
+  const params: unknown[] = [];
+  if (q) {
+    sql += " AND (lower(nombre) LIKE ? OR lower(descripcion) LIKE ? OR lower(direccion) LIKE ? OR lower(ciudad) LIKE ?)";
+    const like = `%${q}%`;
+    params.push(like, like, like, like);
+  }
+  if (categoriaId && categoriaId !== "Todo") {
+    sql += " AND categoria_id = ?";
+    params.push(categoriaId);
+  }
+  if (ciudad) {
+    sql += " AND lower(ciudad) LIKE ?";
+    params.push(`%${ciudad}%`);
+  }
+  sql += " ORDER BY fecha_creacion DESC";
+  res.json(queryAll(sql, params).map(mapEspacio));
+});
+
+app.get("/api/espacios/mios", requireAuth, (req: AuthRequest, res) => {
+  const rows = queryAll(
+    "SELECT * FROM espacios WHERE arrendador_id = ? ORDER BY fecha_creacion DESC",
+    [req.user!.id]
+  );
+  res.json(rows.map(mapEspacio));
+});
+
+app.get("/api/espacios/:id", (req, res) => {
+  const row = queryOne("SELECT * FROM espacios WHERE id = ?", [req.params.id]);
+  if (!row) return res.status(404).json({ error: "Espacio no encontrado" });
+  res.json(mapEspacio(row));
+});
+
+app.post("/api/espacios", requireAuth, (req: AuthRequest, res) => {
+  if (req.user!.rol !== "arrendador") {
+    return res.status(403).json({ error: "Solo arrendadores pueden publicar espacios" });
+  }
+  const b = req.body ?? {};
+  const id = nextId("ESP", "espacios");
+  const fecha = new Date().toISOString().split("T")[0];
+  run(
+    `INSERT INTO espacios (
+      id, arrendador_id, nombre, direccion, ciudad, descripcion, imagenes,
+      servicios_incluidos, precio_hora, precio_dia, capacidad, categoria_id,
+      calificacion, total_resenas, disponible, fecha_creacion
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0,0,1,?)`,
+    [
+      id,
+      req.user!.id,
+      b.nombre ?? "Sin nombre",
+      b.direccion ?? "",
+      b.ciudad ?? "",
+      b.descripcion ?? "",
+      JSON.stringify(b.imagenes ?? []),
+      JSON.stringify(b.serviciosIncluidos ?? []),
+      b.precioHora ?? null,
+      b.precioDia ?? null,
+      b.capacidad ?? null,
+      b.categoriaId ?? "CAT001",
+      fecha,
+    ]
+  );
+  persist();
+  const row = queryOne("SELECT * FROM espacios WHERE id = ?", [id]);
+  res.status(201).json(mapEspacio(row!));
+});
+
+app.put("/api/espacios/:id", requireAuth, (req: AuthRequest, res) => {
+  const existing = queryOne("SELECT * FROM espacios WHERE id = ?", [req.params.id]);
+  if (!existing) return res.status(404).json({ error: "Espacio no encontrado" });
+  if (existing.arrendador_id !== req.user!.id) {
+    return res.status(403).json({ error: "No autorizado" });
+  }
+  const b = req.body ?? {};
+  run(
+    `UPDATE espacios SET
+      nombre = ?, direccion = ?, ciudad = ?, descripcion = ?, imagenes = ?,
+      servicios_incluidos = ?, precio_hora = ?, precio_dia = ?, capacidad = ?,
+      categoria_id = ?, disponible = ?
+     WHERE id = ?`,
+    [
+      b.nombre ?? existing.nombre,
+      b.direccion ?? existing.direccion,
+      b.ciudad ?? existing.ciudad,
+      b.descripcion ?? existing.descripcion,
+      b.imagenes !== undefined ? JSON.stringify(b.imagenes) : existing.imagenes,
+      b.serviciosIncluidos !== undefined
+        ? JSON.stringify(b.serviciosIncluidos)
+        : existing.servicios_incluidos,
+      b.precioHora !== undefined ? b.precioHora : existing.precio_hora,
+      b.precioDia !== undefined ? b.precioDia : existing.precio_dia,
+      b.capacidad !== undefined ? b.capacidad : existing.capacidad,
+      b.categoriaId !== undefined ? b.categoriaId : existing.categoria_id,
+      b.disponible !== undefined ? (b.disponible ? 1 : 0) : existing.disponible,
+      req.params.id,
+    ]
+  );
+  persist();
+  const row = queryOne("SELECT * FROM espacios WHERE id = ?", [req.params.id]);
+  res.json(mapEspacio(row!));
+});
+
+app.delete("/api/espacios/:id", requireAuth, (req: AuthRequest, res) => {
+  const existing = queryOne("SELECT * FROM espacios WHERE id = ?", [req.params.id]);
+  if (!existing) return res.status(404).json({ error: "Espacio no encontrado" });
+  if (existing.arrendador_id !== req.user!.id) {
+    return res.status(403).json({ error: "No autorizado" });
+  }
+  run("DELETE FROM favoritos WHERE espacio_id = ?", [req.params.id]);
+  run("DELETE FROM espacios WHERE id = ?", [req.params.id]);
+  persist();
+  res.json({ ok: true });
+});
+
+// ─── Favoritos ──────────────────────────────────────────
+app.get("/api/favoritos", requireAuth, (req: AuthRequest, res) => {
+  const rows = queryAll(
+    "SELECT id, usuario_id as usuarioId, espacio_id as espacioId, fecha_guardado as fechaGuardado FROM favoritos WHERE usuario_id = ?",
+    [req.user!.id]
+  );
+  res.json(rows);
+});
+
+app.post("/api/favoritos/toggle", requireAuth, (req: AuthRequest, res) => {
+  const espacioId = String(req.body.espacioId ?? "");
+  if (!espacioId) return res.status(400).json({ error: "espacioId requerido" });
+  const existing = queryOne(
+    "SELECT id FROM favoritos WHERE usuario_id = ? AND espacio_id = ?",
+    [req.user!.id, espacioId]
+  );
+  if (existing) {
+    run("DELETE FROM favoritos WHERE id = ?", [existing.id]);
+    persist();
+    return res.json({ favorito: false });
+  }
+  const id = nextId("FAV", "favoritos");
+  const fecha = new Date().toISOString().split("T")[0];
+  run("INSERT INTO favoritos VALUES (?,?,?,?)", [id, req.user!.id, espacioId, fecha]);
+  persist();
+  res.json({ favorito: true, id });
+});
+
+// ─── Reservas ───────────────────────────────────────────
+app.get("/api/reservas", requireAuth, (req: AuthRequest, res) => {
+  const user = req.user!;
+  let rows;
+  if (user.rol === "arrendador") {
+    rows = queryAll(
+      "SELECT * FROM reservas WHERE usuario_arrendador_id = ? ORDER BY fecha_inicio DESC",
+      [user.id]
+    );
+  } else {
+    rows = queryAll(
+      "SELECT * FROM reservas WHERE usuario_arrendatario_id = ? ORDER BY fecha_inicio DESC",
+      [user.id]
+    );
+  }
+  res.json(rows.map(mapReserva));
+});
+
+app.get("/api/arrendador/reservas", requireAuth, (req: AuthRequest, res) => {
+  if (req.user!.rol !== "arrendador") {
+    return res.status(403).json({ error: "Solo arrendadores" });
+  }
+  const rows = queryAll(
+    `SELECT r.*, e.nombre as espacio_nombre, e.direccion as espacio_direccion,
+            e.ciudad as espacio_ciudad, e.descripcion as espacio_descripcion,
+            e.imagenes as espacio_imagenes,
+            u.nombres as arrendatario_nombres, u.apellidos as arrendatario_apellidos,
+            u.correo as arrendatario_correo
+     FROM reservas r
+     JOIN espacios e ON e.id = r.espacio_id
+     JOIN usuarios u ON u.id = r.usuario_arrendatario_id
+     WHERE r.usuario_arrendador_id = ?
+     ORDER BY r.fecha_inicio DESC`,
+    [req.user!.id]
+  );
+  const mapped = rows.map((r) => ({
+    ...mapReserva(r),
+    espacio: {
+      id: r.espacio_id,
+      nombre: r.espacio_nombre,
+      direccion: r.espacio_direccion,
+      ciudad: r.espacio_ciudad,
+      descripcion: r.espacio_descripcion,
+      imagenes: JSON.parse((r.espacio_imagenes as string) || "[]"),
+    },
+    arrendatario: {
+      nombres: r.arrendatario_nombres,
+      apellidos: r.arrendatario_apellidos,
+      correo: r.arrendatario_correo,
+    },
+  }));
+  const contadores = {
+    todas: mapped.length,
+    proximas: mapped.filter((x) => x.estado === "confirmada" || x.estado === "pendiente").length,
+    completadas: mapped.filter((x) => x.estado === "completada").length,
+    canceladas: mapped.filter((x) => x.estado === "cancelada").length,
+  };
+  res.json({ reservas: mapped, contadores });
+});
+
+app.post("/api/reservas", requireAuth, (req: AuthRequest, res) => {
+  const b = req.body ?? {};
+  const espacio = queryOne("SELECT * FROM espacios WHERE id = ?", [b.espacioId]);
+  if (!espacio) return res.status(404).json({ error: "Espacio no encontrado" });
+  const id = nextId("RES", "reservas");
+  const fecha = new Date().toISOString().split("T")[0];
+  run(
+    `INSERT INTO reservas (
+      id, espacio_id, usuario_arrendatario_id, usuario_arrendador_id,
+      fecha_inicio, fecha_fin, estado, precio_total, fecha_creacion,
+      cantidad_personas, hora_inicio, hora_fin, resena_dejada
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0)`,
+    [
+      id,
+      b.espacioId,
+      req.user!.id,
+      espacio.arrendador_id,
+      b.fechaInicio,
+      b.fechaFin ?? b.fechaInicio,
+      b.estado ?? "confirmada",
+      b.precioTotal ?? 0,
+      fecha,
+      b.cantidadPersonas ?? 1,
+      b.horaInicio ?? null,
+      b.horaFin ?? null,
+    ]
+  );
+  persist();
+  const row = queryOne("SELECT * FROM reservas WHERE id = ?", [id]);
+  res.status(201).json(mapReserva(row!));
+});
+
+app.patch("/api/reservas/:id/cancelar", requireAuth, (req: AuthRequest, res) => {
+  const row = queryOne("SELECT * FROM reservas WHERE id = ?", [req.params.id]);
+  if (!row) return res.status(404).json({ error: "Reserva no encontrada" });
+  if (
+    row.usuario_arrendatario_id !== req.user!.id &&
+    row.usuario_arrendador_id !== req.user!.id
+  ) {
+    return res.status(403).json({ error: "No autorizado" });
+  }
+  run("UPDATE reservas SET estado = 'cancelada' WHERE id = ?", [req.params.id]);
+  persist();
+  const updated = queryOne("SELECT * FROM reservas WHERE id = ?", [req.params.id]);
+  res.json(mapReserva(updated!));
+});
+
+// ─── Reseñas ────────────────────────────────────────────
+app.post("/api/reservas/:id/resena", requireAuth, (req: AuthRequest, res) => {
+  const reserva = queryOne("SELECT * FROM reservas WHERE id = ?", [req.params.id]);
+  if (!reserva) return res.status(404).json({ error: "Reserva no encontrada" });
+  if (reserva.usuario_arrendatario_id !== req.user!.id) {
+    return res.status(403).json({ error: "No autorizado" });
+  }
+  const b = req.body ?? {};
+  const id = nextId("REV", "resenas");
+  const fecha = new Date().toISOString().split("T")[0];
+  run(
+    "INSERT INTO resenas (id, espacio_id, usuario_id, reserva_id, calificacion, comentario, fecha, tipos_etiquetas) VALUES (?,?,?,?,?,?,?,?)",
+    [
+      id,
+      reserva.espacio_id,
+      req.user!.id,
+      reserva.id,
+      Number(b.calificacion) || 5,
+      b.comentario ?? "",
+      fecha,
+      JSON.stringify(b.tiposEtiquetas ?? []),
+    ]
+  );
+  run("UPDATE reservas SET resena_dejada = 1 WHERE id = ?", [reserva.id]);
+
+  const stats = queryOne<{ avg: number; c: number }>(
+    "SELECT AVG(calificacion) as avg, COUNT(*) as c FROM resenas WHERE espacio_id = ?",
+    [reserva.espacio_id]
+  );
+  if (stats) {
+    run("UPDATE espacios SET calificacion = ?, total_resenas = ? WHERE id = ?", [
+      Math.round((stats.avg ?? 0) * 10) / 10,
+      stats.c,
+      reserva.espacio_id,
+    ]);
+  }
+  persist();
+  res.status(201).json({ id, ok: true });
+});
+
+// ─── Tarjetas ───────────────────────────────────────────
+app.get("/api/tarjetas", requireAuth, (req: AuthRequest, res) => {
+  const rows = queryAll(
+    "SELECT id, last4, nombre, tipo, es_principal as esPrincipal FROM tarjetas WHERE usuario_id = ?",
+    [req.user!.id]
+  );
+  res.json(rows);
+});
+
+app.post("/api/tarjetas", requireAuth, (req: AuthRequest, res) => {
+  const b = req.body ?? {};
+  const id = nextId("TAR", "tarjetas");
+  const count = queryOne<{ c: number }>(
+    "SELECT COUNT(*) as c FROM tarjetas WHERE usuario_id = ?",
+    [req.user!.id]
+  );
+  const esPrincipal = (count?.c ?? 0) === 0 ? 1 : 0;
+  run("INSERT INTO tarjetas VALUES (?,?,?,?,?,?)", [
+    id,
+    req.user!.id,
+    b.last4 ?? "0000",
+    b.nombre ?? "",
+    b.tipo ?? "Débito",
+    esPrincipal,
+  ]);
+  persist();
+  res.status(201).json({ id, last4: b.last4, nombre: b.nombre, tipo: b.tipo ?? "Débito" });
+});
+
+app.delete("/api/tarjetas/:id", requireAuth, (req: AuthRequest, res) => {
+  const row = queryOne("SELECT * FROM tarjetas WHERE id = ? AND usuario_id = ?", [
+    req.params.id,
+    req.user!.id,
+  ]);
+  if (!row) return res.status(404).json({ error: "Tarjeta no encontrada" });
+  run("DELETE FROM tarjetas WHERE id = ?", [req.params.id]);
+  persist();
+  res.json({ ok: true });
+});
+
+// ─── Suscripciones ──────────────────────────────────────
+app.get("/api/suscripciones", (req, res) => {
+  const tipo = String(req.query.tipo ?? "");
+  let sql = "SELECT * FROM suscripciones WHERE estado = 'activa'";
+  const params: unknown[] = [];
+  if (tipo) {
+    sql += " AND tipo = ?";
+    params.push(tipo);
+  }
+  sql += " ORDER BY precio_mensual DESC";
+  const rows = queryAll(sql, params).map((r) => ({
+    id: r.id,
+    nombre: r.nombre,
+    descripcion: r.descripcion,
+    tipo: r.tipo,
+    precioMensual: r.precio_mensual,
+    precioAnual: r.precio_anual,
+    duracion: r.duracion,
+    beneficios: JSON.parse((r.beneficios as string) || "[]"),
+    estado: r.estado,
+    comisionPct: r.comision_pct,
+  }));
+  res.json(rows);
+});
+
+app.get("/api/suscripciones/mia", requireAuth, (req: AuthRequest, res) => {
+  const row = queryOne(
+    `SELECT su.*, s.nombre, s.descripcion, s.tipo, s.precio_mensual, s.precio_anual,
+            s.duracion, s.beneficios, s.comision_pct
+     FROM suscripciones_usuario su
+     JOIN suscripciones s ON s.id = su.suscripcion_id
+     WHERE su.usuario_id = ? AND su.estado = 'activa'
+     ORDER BY su.fecha_inicio DESC LIMIT 1`,
+    [req.user!.id]
+  );
+  if (!row) return res.json(null);
+  res.json({
+    id: row.id,
+    usuarioId: row.usuario_id,
+    suscripcionId: row.suscripcion_id,
+    fechaInicio: row.fecha_inicio,
+    fechaFin: row.fecha_fin,
+    estado: row.estado,
+    renovacionAutomatica: Boolean(row.renovacion_automatica),
+    plan: {
+      id: row.suscripcion_id,
+      nombre: row.nombre,
+      descripcion: row.descripcion,
+      tipo: row.tipo,
+      precioMensual: row.precio_mensual,
+      precioAnual: row.precio_anual,
+      duracion: row.duracion,
+      beneficios: JSON.parse((row.beneficios as string) || "[]"),
+      comisionPct: row.comision_pct,
+    },
+  });
+});
+
+app.post("/api/suscripciones/contratar", requireAuth, (req: AuthRequest, res) => {
+  const suscripcionId = String(req.body.suscripcionId ?? "");
+  const plan = queryOne("SELECT * FROM suscripciones WHERE id = ?", [suscripcionId]);
+  if (!plan) return res.status(404).json({ error: "Plan no encontrado" });
+  if (plan.tipo !== req.user!.rol) {
+    return res.status(400).json({ error: "Este plan no aplica a tu tipo de cuenta" });
+  }
+  run(
+    "UPDATE suscripciones_usuario SET estado = 'cancelada' WHERE usuario_id = ? AND estado = 'activa'",
+    [req.user!.id]
+  );
+  const id = nextId("SU", "suscripciones_usuario");
+  const fecha = new Date().toISOString().split("T")[0];
+  const fin = new Date();
+  fin.setMonth(fin.getMonth() + (plan.duracion === "anual" ? 12 : 1));
+  run("INSERT INTO suscripciones_usuario VALUES (?,?,?,?,?,?,?)", [
+    id,
+    req.user!.id,
+    suscripcionId,
+    fecha,
+    fin.toISOString().split("T")[0],
+    "activa",
+    1,
+  ]);
+  persist();
+  res.status(201).json({ ok: true, id });
+});
+
+// ─── Ingresos arrendador ────────────────────────────────
+app.get("/api/arrendador/ingresos", requireAuth, (req: AuthRequest, res) => {
+  if (req.user!.rol !== "arrendador") {
+    return res.status(403).json({ error: "Solo arrendadores" });
+  }
+  const planRow = queryOne(
+    `SELECT s.comision_pct FROM suscripciones_usuario su
+     JOIN suscripciones s ON s.id = su.suscripcion_id
+     WHERE su.usuario_id = ? AND su.estado = 'activa' LIMIT 1`,
+    [req.user!.id]
+  );
+  const comisionPct = Number(planRow?.comision_pct ?? 7);
+
+  const rows = queryAll(
+    `SELECT r.*, e.nombre as espacio_nombre,
+            u.nombres as arrendatario_nombres, u.apellidos as arrendatario_apellidos
+     FROM reservas r
+     JOIN espacios e ON e.id = r.espacio_id
+     JOIN usuarios u ON u.id = r.usuario_arrendatario_id
+     WHERE r.usuario_arrendador_id = ? AND r.estado IN ('completada', 'confirmada')
+     ORDER BY r.fecha_inicio DESC`,
+    [req.user!.id]
+  );
+
+  const detalle = rows.map((r) => {
+    const ingreso = Number(r.precio_total) || 0;
+    const comision = Math.round(ingreso * (comisionPct / 100) * 100) / 100;
+    return {
+      id: r.id,
+      fechaInicio: r.fecha_inicio,
+      espacioNombre: r.espacio_nombre,
+      arrendatario: `${r.arrendatario_nombres} ${r.arrendatario_apellidos}`.trim(),
+      estado: r.estado,
+      ingreso,
+      comision,
+      neto: Math.round((ingreso - comision) * 100) / 100,
+    };
+  });
+
+  const ingresos = detalle.reduce((s, d) => s + d.ingreso, 0);
+  const comisiones = detalle.reduce((s, d) => s + d.comision, 0);
+  res.json({
+    resumen: {
+      ingresos: Math.round(ingresos * 100) / 100,
+      comisiones: Math.round(comisiones * 100) / 100,
+      neto: Math.round((ingresos - comisiones) * 100) / 100,
+      reservas: detalle.length,
+      comisionPct,
+    },
+    detalle,
+  });
+});
+
+// ─── Contenido ──────────────────────────────────────────
+app.get("/api/faqs", (_req, res) => {
+  res.json(
+    queryAll("SELECT id, pregunta, respuesta, orden FROM faqs ORDER BY orden ASC")
+  );
+});
+
+app.get("/api/politicas", (req, res) => {
+  const rol = String(req.query.rol ?? "arrendatario");
+  res.json(
+    queryAll(
+      "SELECT id, rol, titulo, contenido, orden FROM politicas WHERE rol = ? ORDER BY orden ASC",
+      [rol]
+    )
+  );
+});
+
+app.post("/api/contacto", (req, res) => {
+  const b = req.body ?? {};
+  if (!b.nombre || !b.correo || !b.mensaje) {
+    return res.status(400).json({ error: "Nombre, correo y mensaje son requeridos" });
+  }
+  const id = nextId("CON", "contactos");
+  const fecha = new Date().toISOString();
+  run("INSERT INTO contactos VALUES (?,?,?,?,?,?)", [
+    id,
+    b.nombre,
+    b.correo,
+    b.telefono ?? "",
+    b.mensaje,
+    fecha,
+  ]);
+  persist();
+  res.status(201).json({ ok: true, id });
+});
+
+app.get("/api/preferencias", requireAuth, (req: AuthRequest, res) => {
+  const row = queryOne("SELECT * FROM preferencias WHERE usuario_id = ?", [req.user!.id]);
+  res.json({
+    notificaciones: Boolean(row?.notificaciones ?? 1),
+    ofertas: Boolean(row?.ofertas ?? 1),
+    newsletter: Boolean(row?.newsletter ?? 1),
+  });
+});
+
+app.put("/api/preferencias", requireAuth, (req: AuthRequest, res) => {
+  const b = req.body ?? {};
+  run(
+    `INSERT INTO preferencias (usuario_id, notificaciones, ofertas, newsletter)
+     VALUES (?,?,?,?)
+     ON CONFLICT(usuario_id) DO UPDATE SET
+       notificaciones = excluded.notificaciones,
+       ofertas = excluded.ofertas,
+       newsletter = excluded.newsletter`,
+    [
+      req.user!.id,
+      b.notificaciones ? 1 : 0,
+      b.ofertas ? 1 : 0,
+      b.newsletter ? 1 : 0,
+    ]
+  );
+  persist();
+  res.json({ ok: true });
+});
+
+// Lookup usuarios (para mostrar nombres en UI)
+app.get("/api/usuarios/:id", requireAuth, (req, res) => {
+  const row = queryOne("SELECT * FROM usuarios WHERE id = ?", [req.params.id]);
+  if (!row) return res.status(404).json({ error: "No encontrado" });
+  res.json(mapUsuario(row));
+});
+
+app.get("/api/health", (_req, res) => res.json({ ok: true }));
+
+async function main() {
+  await initDb();
+  app.listen(PORT, () => {
+    console.log(`[api] Prisma API en http://localhost:${PORT}`);
+  });
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
