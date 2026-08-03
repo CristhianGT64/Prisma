@@ -135,7 +135,7 @@ export default function ArrendadorReservasPage() {
   // Obtener las reservas del día seleccionado (o todas las del mes si no hay día seleccionado)
   const reservasEnCalendario = reservasDelEspacio.filter((r) => {
     if (!r.fechaInicio) return false;
-    const [y, m, d] = r.fechaInicio.split("-").map(Number);
+    const [y, m] = r.fechaInicio.split("-").map(Number);
     if (fechaSeleccionada) {
       return r.fechaInicio === fechaSeleccionada;
     }

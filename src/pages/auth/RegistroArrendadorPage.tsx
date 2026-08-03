@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
+import type { Usuario } from "../../interfaces/Usuario";
 
 // --- SVG Background Polygons ---
 
@@ -148,7 +149,7 @@ function EmpresaSVG() {
 // --- Main Page Component ---
 
 export default function RegistroArrendador() {
-  const [tipoSeleccionado, setTipoSeleccionado] = useState(null);
+  const [tipoSeleccionado, setTipoSeleccionado] = useState<Usuario['tipoArrendador'] | null>(null);
   const navigate = useNavigate();
 
   const handleContinuar = () => {

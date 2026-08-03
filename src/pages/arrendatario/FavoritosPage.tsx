@@ -16,7 +16,7 @@ export default function FavoritosPage() {
     return (
         <div className="flex-1 overflow-y-auto bg-white pb-24">
             {/* Header */}
-            <div className="bg-[#00BFA5] px-5 py-4 sticky top-0 z-10 shadow-sm flex items-center justify-center">
+            <div className="bg-[#079FA0] px-5 py-4 sticky top-0 z-10 shadow-sm flex items-center justify-center">
                 <h1 className="text-white font-bold text-lg">Favoritos</h1>
             </div>
 

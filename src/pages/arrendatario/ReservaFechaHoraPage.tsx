@@ -6,7 +6,7 @@ import BottomNav from "../../components/layout/BottomNav";
 export default function ReservaFechaHoraPage() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
-  const { espacios, reservaEnCurso, setReservaEnCurso } = useApp();
+  const { espacios, setReservaEnCurso } = useApp();
 
   const espacio = espacios.find((e) => e.id === id);
 

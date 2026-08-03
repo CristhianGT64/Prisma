@@ -12,7 +12,7 @@ export default function PerfilPage() {
   const [saving, setSaving] = useState(false);
 
   const isArrendador = usuarioActual?.rol === "arrendador";
-  const accent = isArrendador ? "#FF9800" : "#00BFA5";
+  const accent = isArrendador ? "#FF9800" : "#079FA0";
 
   useEffect(() => {
     if (!usuarioActual) return;

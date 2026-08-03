@@ -1,9 +1,9 @@
-﻿import { useEffect, useState } from "react";
+﻿import { useEffect } from "react";
 import { Link, useNavigate } from "react-router";
-import { api } from "../../api/client";
+//import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 
-interface Faq {
+/*interface Faq {
   id: string;
   pregunta: string;
   respuesta: string;
@@ -12,15 +12,14 @@ interface Faq {
 interface Categoria {
   id: string;
   nombre: string;
-}
+}*/
 
 export default function LandingPage() {
   const navigate = useNavigate();
-  const { usuarioActual, espacios } = useApp();
-  const [faqs, setFaqs] = useState<Faq[]>([]);
-  const [categorias, setCategorias] = useState<Categoria[]>([]);
-  const [busqueda, setBusqueda] = useState("");
-  const [openFaq, setOpenFaq] = useState<string | null>(null);
+  const { usuarioActual } = useApp();
+  //const [faqs, setFaqs] = useState<Faq[]>([]);
+  //const [categorias, setCategorias] = useState<Categoria[]>([]);
+  //const [openFaq, setOpenFaq] = useState<string | null>(null);
 
   useEffect(() => {
     if (usuarioActual) {
@@ -28,17 +27,12 @@ export default function LandingPage() {
     }
   }, [usuarioActual, navigate]);
 
-  useEffect(() => {
+  /*useEffect(() => {
     api<Faq[]>("/faqs").then((d) => setFaqs(d.slice(0, 4))).catch(() => {});
     api<Categoria[]>("/categorias").then(setCategorias).catch(() => {});
-  }, []);
+  }, []);*/
 
-  const destacados = espacios.filter((e) => e.disponible).slice(0, 3);
-
-  const handleBuscar = (e: React.FormEvent) => {
-    e.preventDefault();
-    navigate(busqueda.trim() ? `/login?next=/inicio&q=${encodeURIComponent(busqueda.trim())}` : "/login");
-  };
+  //const destacados = espacios.filter((e) => e.disponible).slice(0, 3);
 
   return (
     <div className="flex-1 overflow-y-auto bg-white min-h-screen relative font-sans flex flex-col justify-between">

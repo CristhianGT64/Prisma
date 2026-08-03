@@ -44,7 +44,7 @@ export default function EditarPerfilArrendatario() {
     return (
         <div className="flex-1 overflow-y-auto bg-white pb-24 relative">
             {/* Header */}
-            <div className="bg-[#00BFA5] px-5 py-4 flex items-center gap-3 sticky top-0 z-10 shadow-sm">
+            <div className="bg-[#079FA0] px-5 py-4 flex items-center gap-3 sticky top-0 z-10 shadow-sm">
                 <button onClick={() => navigate(-1)} className="text-white">
                     <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
