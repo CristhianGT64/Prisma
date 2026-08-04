@@ -26,7 +26,7 @@ export default function InicioPage() {
       </div>
 
       <div className="p-5 max-w-md mx-auto">
-        {/* Barra de búsqueda estilo amarillo suave */}
+        {/* Barra de búsqueda con borde azul sutil */}
         <div className="relative mb-6">
           <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
             <svg
@@ -47,7 +47,7 @@ export default function InicioPage() {
           <input
             type="text"
             placeholder="Buscar espacios..."
-            className="w-full bg-[#FFF3C4] border-none rounded-2xl py-3 pl-12 pr-4 text-sm font-medium text-gray-700 placeholder-[#079FA0]/60 focus:outline-none focus:ring-2 focus:ring-[#079FA0] transition"
+            className="w-full bg-white border border-blue-400 rounded-2xl py-3 pl-12 pr-4 text-sm font-medium text-gray-700 placeholder-[#079FA0]/60 focus:outline-none focus:ring-2 focus:ring-[#079FA0] transition"
           />
         </div>
 
