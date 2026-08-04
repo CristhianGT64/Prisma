@@ -15,6 +15,8 @@ export default function AgregarEspacioPage() {
         ciudad: "",
         descripcion: "",
         imagenUrl: "",
+        precioHora: "",
+        precioDia: "",
     });
     const [serviciosSeleccionados, setServiciosSeleccionados] = useState<ServicioIncluido[]>([]);
     const [loading, setLoading] = useState(false);
@@ -42,6 +44,29 @@ export default function AgregarEspacioPage() {
         setPreviewImg(e.target.value);
     };
 
+    // Cálculo dinámico de precios sugeridos basados en la cantidad de servicios seleccionados
+    const calcularPreciosSugeridos = () => {
+        const baseHora = 50;
+        const baseDia = 400;
+        const extraPorServicioHora = 15;
+        const extraPorServicioDia = 100;
+        const cantidadServicios = serviciosSeleccionados.length;
+
+        return {
+            hora: baseHora + cantidadServicios * extraPorServicioHora,
+            dia: baseDia + cantidadServicios * extraPorServicioDia,
+        };
+    };
+
+    const aplicarPreciosSugeridos = () => {
+        const sugeridos = calcularPreciosSugeridos();
+        setForm(prev => ({
+            ...prev,
+            precioHora: sugeridos.hora.toString(),
+            precioDia: sugeridos.dia.toString(),
+        }));
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
@@ -54,6 +79,8 @@ export default function AgregarEspacioPage() {
                 descripcion: form.descripcion,
                 imagenes: form.imagenUrl ? [{ nombre: form.nombre, url: form.imagenUrl }] : [],
                 serviciosIncluidos: serviciosSeleccionados,
+                precioHora: Number(form.precioHora) || 0,
+                precioDia: Number(form.precioDia) || 0,
                 disponible: true,
             });
             navigate("/arrendador/espacios");
@@ -63,6 +90,8 @@ export default function AgregarEspacioPage() {
             setLoading(false);
         }
     };
+
+    const sugeridos = calcularPreciosSugeridos();
 
     return (
         <div className="flex-1 overflow-y-auto pb-28 bg-white">
@@ -82,7 +111,6 @@ export default function AgregarEspacioPage() {
                     <label className="block text-xs font-bold text-gray-800 mb-2 uppercase tracking-wide">
                         Imagen del espacio <span className="text-red-500">*</span>
                     </label>
-                    {/* Preview con bordes naranjas punteados y diseño exacto */}
                     <div className="w-full h-44 bg-[#FFF8F0] rounded-2xl overflow-hidden border-2 border-dashed border-[#FF9800]/50 flex items-center justify-center mb-3 relative">
                         {previewImg ? (
                             <img src={previewImg} alt="preview" className="w-full h-full object-cover" />
@@ -184,7 +212,57 @@ export default function AgregarEspacioPage() {
                     </div>
                 </div>
 
-                {/* Botones (Cancelar en Verde Turquesa #00BFA5, Guardar en Naranja #FF9800) */}
+                {/* Sección de Precios e Inteligencia de Sugerencias */}
+                <div className="bg-[#FFF8F0] border border-[#FF9800]/30 rounded-2xl p-4 flex flex-col gap-4">
+                    <div className="flex justify-between items-center">
+                        <span className="text-xs font-bold text-gray-800 uppercase tracking-wide">
+                            Precios de Tarifa <span className="text-red-500">*</span>
+                        </span>
+                        <button
+                            type="button"
+                            onClick={aplicarPreciosSugeridos}
+                            className="text-xs text-[#FF9800] font-bold hover:underline bg-white px-2.5 py-1 rounded-lg border border-[#FF9800]/30 shadow-xs transition"
+                        >
+                            Usar sugeridos
+                        </button>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                        <div>
+                            <label className="block text-[11px] font-semibold text-gray-600 mb-1">Precio por Hora (L)</label>
+                            <input
+                                type="number"
+                                name="precioHora"
+                                value={form.precioHora}
+                                onChange={handleChange}
+                                placeholder={`Sugerido: L.${sugeridos.hora}`}
+                                required
+                                min="0"
+                                step="0.01"
+                                className="w-full border border-[#FF9800]/30 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#FF9800] focus:border-transparent transition bg-white text-gray-800 placeholder:text-gray-400"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-[11px] font-semibold text-gray-600 mb-1">Precio por Día (L)</label>
+                            <input
+                                type="number"
+                                name="precioDia"
+                                value={form.precioDia}
+                                onChange={handleChange}
+                                placeholder={`Sugerido: L.${sugeridos.dia}`}
+                                required
+                                min="0"
+                                step="0.01"
+                                className="w-full border border-[#FF9800]/30 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#FF9800] focus:border-transparent transition bg-white text-gray-800 placeholder:text-gray-400"
+                            />
+                        </div>
+                    </div>
+                    <p className="text-[11px] text-gray-500 italic">
+                        * Las sugerencias se ajustan automáticamente según los {serviciosSeleccionados.length} servicios seleccionados.
+                    </p>
+                </div>
+
+                {/* Botones */}
                 <div className="flex gap-3 mt-2">
                     <button
                         type="button"
