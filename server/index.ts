@@ -223,6 +223,19 @@ app.get("/api/espacios/:id", async (req, res) => {
   res.json(mapEspacio(row));
 });
 
+app.get("/api/espacios/:id/reservas", requireAuth, async (req: AuthRequest, res) => {
+  const espacio = await queryOne("SELECT id FROM espacios WHERE id = ?", [req.params.id]);
+  if (!espacio) return res.status(404).json({ error: "Espacio no encontrado" });
+
+  const rows = await queryAll(
+    `SELECT * FROM reservas
+     WHERE espacio_id = ? AND estado <> 'cancelada'
+     ORDER BY fecha_inicio ASC, fecha_fin ASC`,
+    [req.params.id]
+  );
+  res.json(rows.map(mapReserva));
+});
+
 app.post("/api/espacios", requireAuth, async (req: AuthRequest, res) => {
   if (req.user!.rol !== "arrendador") {
     return res.status(403).json({ error: "Solo arrendadores pueden publicar espacios" });
