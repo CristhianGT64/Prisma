@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
@@ -33,11 +33,10 @@ const PLANES_ARRENDATARIO: Plan[] = [
     tipo: "arrendatario",
     precioMensual: 2800,
     beneficios: [
-      "Acceso ilimitado a la red de espacios aliados.",
-      "Uso de escritorios compartidos sin límite de horas.",
-      "Prioridad en reservas.",
-      "Acceso a todos los espacios disponibles.",
-      "Eventos y beneficios exclusivos.",
+      "Mayor usabilidad en búsquedas",
+      "Estadísticas y métricas",
+      "Soporte prioritario",
+      "Descuentos y ofertas de networking",
     ],
   },
   {
@@ -46,10 +45,10 @@ const PLANES_ARRENDATARIO: Plan[] = [
     tipo: "arrendatario",
     precioMensual: 1200,
     beneficios: [
-      "Acceso a la red de espacios aliados.",
-      "Hasta 40 horas de uso al mes (aprox. 10 horas por semana).",
-      "Reserva de escritorios compartidos según disponibilidad.",
-      "Acceso a eventos y networking de la comunidad.",
+      "Mayor usabilidad en búsquedas",
+      "Estadísticas y métricas",
+      "Soporte prioritario",
+      "Descuentos y ofertas de networking",
     ],
   },
 ];
@@ -58,17 +57,15 @@ const PLANES_ARRENDATARIO: Plan[] = [
 const PLANES_ARRENDADOR: Plan[] = [
   {
     id: "premium",
-    nombre: "Plan Premium",
+    nombre: "Plan Pro (Full-time)",
     tipo: "arrendador",
     precioMensual: 1500,
     comisionPct: 5,
     beneficios: [
-      "Publicación ilimitada.",
-      "Espacios destacados.",
-      "Estadísticas de ocupación.",
-      "Reportes financieros.",
+      "Mayor usabilidad en búsquedas",
+      "Estadísticas y métricas",
       "Soporte prioritario.",
-      "Comisión reducida al 5%.",
+      "Descuentos y ofertas de networking",
     ],
   },
   {
@@ -104,7 +101,7 @@ export default function SuscripcionesPage() {
   const priceTextColor = isArrendador ? "#079FA0" : "#F58220";
   const buttonBgColor = isArrendador ? "#079FA0" : "#F58220";
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     const defaultPlanes = isArrendador ? PLANES_ARRENDADOR : PLANES_ARRENDATARIO;
     try {
@@ -120,11 +117,13 @@ export default function SuscripcionesPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [isArrendador, rol]);
 
   useEffect(() => {
-    void load();
-  }, [rol]);
+    queueMicrotask(() => {
+      void load();
+    });
+  }, [load]);
 
   const contratar = async (planId: string) => {
     setContratando(planId);
@@ -222,11 +221,11 @@ export default function SuscripcionesPage() {
               return (
                 <div
                   key={plan.id}
-                  className="w-full bg-white border-2 rounded-3xl p-6 shadow-sm flex flex-col items-center relative"
+                  className="w-full bg-white border-2 rounded-[28px] p-6 shadow-[0_2px_10px_rgba(0,0,0,0.08)] flex flex-col items-center relative"
                   style={{ borderColor: cardBorderColor }}
                 >
                   {/* Ícono superior */}
-                  <div className="mb-3">
+                  <div className="mb-4">
                     {isFree ? (
                       <div className="w-16 h-10 bg-[#A2E0D3] rounded-2xl flex items-center justify-center text-white font-extrabold text-xs tracking-wider">
                         FREE
@@ -245,20 +244,20 @@ export default function SuscripcionesPage() {
                   </div>
 
                   {/* Título del plan */}
-                  <h3 className="text-base font-extrabold text-gray-800 mb-3 text-center">
+                  <h3 className="text-[19px] leading-tight font-extrabold text-gray-800 mb-4 text-center">
                     {plan.nombre}
                   </h3>
 
                   {/* Lista de Beneficios */}
-                  <div className="w-full text-left mb-4">
-                    <p className="text-xs font-bold text-gray-800 mb-2">
+                  <div className="w-full text-left mb-5">
+                    <p className="text-[15px] font-bold text-gray-800 mb-2">
                       Incluye:
                     </p>
-                    <ul className="text-xs text-gray-600 space-y-2 pl-2 font-medium leading-relaxed">
+                    <ul className="text-[13px] text-gray-600 space-y-3 pl-3 font-medium leading-snug">
                       {(plan.beneficios || []).map((b) => (
-                        <li key={b} className="flex items-start gap-1.5">
-                          <span className="text-gray-400 font-bold">•</span>
-                          <span>{b}</span>
+                        <li key={b} className="flex items-start gap-2">
+                          <span className="text-gray-400 font-bold leading-none mt-[2px]">•</span>
+                          <span className="flex-1">{b}</span>
                         </li>
                       ))}
                     </ul>
@@ -266,19 +265,19 @@ export default function SuscripcionesPage() {
 
                   {/* Precio */}
                   <p
-                    className="text-sm font-extrabold mb-5 text-center"
+                    className="text-[18px] font-extrabold mb-6 text-center"
                     style={{ color: priceTextColor }}
                   >
                     {isFree
                       ? "Gratis"
-                      : `Desde L. ${plan.precioMensual.toLocaleString("es-HN")}.00  mensuales`}
+                      : `Desde L.${plan.precioMensual.toLocaleString("es-HN")}.00 mensuales`}
                   </p>
 
                   {/* Botón de acción */}
                   <button
                     disabled={activo || contratando === plan.id}
                     onClick={() => void contratar(plan.id)}
-                    className="text-white font-bold text-xs px-7 py-2.5 rounded-full shadow-sm transition-all cursor-pointer active:scale-95 disabled:opacity-60"
+                    className="min-w-[116px] text-white font-bold text-sm px-7 py-2.5 rounded-full shadow-sm transition-all cursor-pointer active:scale-95 disabled:opacity-60"
                     style={{ backgroundColor: buttonBgColor }}
                   >
                     {activo
