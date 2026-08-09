@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router";
-import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import BottomNav from "../../components/layout/BottomNav";
 import { api } from "../../api/client";
@@ -21,9 +20,7 @@ export default function ReservaFechaHoraPage() {
   const [selectedMonth, setSelectedMonth] = useState(5); // 0 = Ene, 5 = Jun
   const [selectedYear, setSelectedYear] = useState(2026);
   
-  // Selección de días (por defecto del 9 al 12 de Junio de 2026)
-  const [startDay, setStartDay] = useState<number | null>(9);
-  const [endDay, setEndDay] = useState<number | null>(12);
+
   const [reservasOcupadas, setReservasOcupadas] = useState<ReservaOcupada[]>([]);
   const [loadingReservas, setLoadingReservas] = useState(true);
   const [startDay, setStartDay] = useState<number | null>(null);
@@ -355,8 +352,7 @@ export default function ReservaFechaHoraPage() {
                   if (occupied) {
                     cellBg = "bg-gray-200";
                     textStyle = "text-gray-400 font-semibold cursor-not-allowed";
-                  } else if (isInRange) {
-                  if (bloqueada) {
+                  } else if (bloqueada) {
                     cellBg = "bg-gray-200 rounded-xl";
                     textStyle = "text-gray-500 font-semibold";
                   } else if (isInRange) {
@@ -372,10 +368,9 @@ export default function ReservaFechaHoraPage() {
                   return (
                     <div
                       key={day}
-                      className={`py-1 flex items-center justify-center select-none transition-all ${cellBg} ${occupied ? "" : "cursor-pointer"}`}
-                      className={`py-1 flex items-center justify-center select-none transition-all ${
-                        bloqueada ? "cursor-not-allowed" : "cursor-pointer"
-                      } ${cellBg}`}
+                      className={`py-1 flex items-center justify-center select-none transition-all ${cellBg} ${
+                        occupied || bloqueada ? "" : "cursor-pointer"
+                      }`}
                       onClick={() => handleDayClick(day)}
                     >
                       <span className={`w-7 h-7 flex items-center justify-center ${textStyle}`}>
