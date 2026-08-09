@@ -2,6 +2,12 @@ import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router";
 import { useApp } from "../../context/AppContext";
 import BottomNav from "../../components/layout/BottomNav";
+import { api } from "../../api/client";
+
+type ReservaOcupada = {
+  fechaInicio: string;
+  fechaFin: string;
+};
 
 export default function ReservaFechaHoraPage() {
   const navigate = useNavigate();
@@ -17,6 +23,8 @@ export default function ReservaFechaHoraPage() {
   // Selección de días (por defecto del 9 al 12 de Junio de 2026)
   const [startDay, setStartDay] = useState<number | null>(9);
   const [endDay, setEndDay] = useState<number | null>(12);
+  const [reservasOcupadas, setReservasOcupadas] = useState<ReservaOcupada[]>([]);
+  const [loadingReservas, setLoadingReservas] = useState(true);
 
   // Control de horas de inicio y fin (Formato 12 hrs)
   const [horaInicioNum, setHoraInicioNum] = useState("09");
@@ -33,6 +41,28 @@ export default function ReservaFechaHoraPage() {
     }
   }, [espacio, navigate]);
 
+  useEffect(() => {
+    if (!espacio) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        setLoadingReservas(true);
+        const data = await api<ReservaOcupada[]>(`/espacios/${espacio.id}/reservas`);
+        if (!cancelled) setReservasOcupadas(data);
+      } catch {
+        if (!cancelled) setReservasOcupadas([]);
+      } finally {
+        if (!cancelled) setLoadingReservas(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [espacio]);
+
   if (!espacio) return null;
 
   // Nombres de meses y días
@@ -41,20 +71,47 @@ export default function ReservaFechaHoraPage() {
     "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"
   ];
 
+  const toDateKey = (day: number) =>
+    `${selectedYear}-${(selectedMonth + 1).toString().padStart(2, "0")}-${day.toString().padStart(2, "0")}`;
+
+  const parseDateKey = (dateKey: string) => new Date(`${dateKey}T12:00:00`);
+
+  const isDateOccupied = (dateKey: string) =>
+    reservasOcupadas.some((reserva) => {
+      if (!reserva.fechaInicio || !reserva.fechaFin) return false;
+      const fecha = parseDateKey(dateKey).getTime();
+      const inicio = parseDateKey(reserva.fechaInicio).getTime();
+      const fin = parseDateKey(reserva.fechaFin).getTime();
+      return fecha >= inicio && fecha <= fin;
+    });
+
+  const isRangeOccupied = (start: number, end: number) => {
+    const from = Math.min(start, end);
+    const to = Math.max(start, end);
+    for (let day = from; day <= to; day += 1) {
+      if (isDateOccupied(toDateKey(day))) return true;
+    }
+    return false;
+  };
+
   // Cálculo de días en el mes seleccionado
   const daysInMonth = new Date(selectedYear, selectedMonth + 1, 0).getDate();
   const firstDayOfWeek = new Date(selectedYear, selectedMonth, 1).getDay(); // 0 = Dom
 
   // Manejo de clicks en los días del calendario
   const handleDayClick = (day: number) => {
+    if (isDateOccupied(toDateKey(day))) return;
+
     if (!startDay || (startDay && endDay)) {
       setStartDay(day);
       setEndDay(null);
     } else if (startDay && !endDay) {
       if (day < startDay) {
+        if (isRangeOccupied(day, startDay)) return;
         setEndDay(startDay);
         setStartDay(day);
       } else {
+        if (isRangeOccupied(startDay, day)) return;
         setEndDay(day);
       }
     }
@@ -80,6 +137,12 @@ export default function ReservaFechaHoraPage() {
       ? 1 
       : 0;
 
+  const selectionIsOccupied = startDay
+    ? endDay
+      ? isRangeOccupied(startDay, endDay)
+      : isDateOccupied(toDateKey(startDay))
+    : false;
+
   const duracionHorasTotal = hoursPerDay * (totalDaysSelected || 1);
   const precioHora = espacio.precioHora || 75;
   const precioTotal = precioHora * duracionHorasTotal;
@@ -94,6 +157,10 @@ export default function ReservaFechaHoraPage() {
   const handleContinuar = () => {
     if (!startDay) {
       alert("Por favor selecciona al menos una fecha en el calendario");
+      return;
+    }
+    if (selectionIsOccupied) {
+      alert("La selección actual incluye fechas no disponibles. Elige otro rango.");
       return;
     }
     
@@ -151,6 +218,9 @@ export default function ReservaFechaHoraPage() {
               Seleccione la fecha o fechas
             </h3>
             <div className="bg-white rounded-3xl border border-gray-300 p-5 shadow-sm">
+              {loadingReservas && (
+                <p className="mb-3 text-xs text-gray-400">Cargando disponibilidad...</p>
+              )}
               {/* Controles de Mes y Año */}
               <div className="flex justify-between items-center mb-5 px-2">
                 <button
@@ -232,6 +302,8 @@ export default function ReservaFechaHoraPage() {
 
                 {/* Generación interactiva de días */}
                 {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((day) => {
+                  const dateKey = toDateKey(day);
+                  const occupied = isDateOccupied(dateKey);
                   const isStart = day === startDay;
                   const isEnd = day === endDay;
                   const isInRange = startDay && endDay && day >= startDay && day <= endDay;
@@ -239,7 +311,10 @@ export default function ReservaFechaHoraPage() {
                   let cellBg = "";
                   let textStyle = "text-gray-800 hover:bg-gray-100 rounded-xl";
 
-                  if (isInRange) {
+                  if (occupied) {
+                    cellBg = "bg-gray-200";
+                    textStyle = "text-gray-400 font-semibold cursor-not-allowed";
+                  } else if (isInRange) {
                     cellBg = "bg-[#F58220]";
                     textStyle = "text-white font-bold";
                     if (isStart) cellBg += " rounded-l-xl";
@@ -252,7 +327,7 @@ export default function ReservaFechaHoraPage() {
                   return (
                     <div
                       key={day}
-                      className={`py-1 flex items-center justify-center cursor-pointer select-none transition-all ${cellBg}`}
+                      className={`py-1 flex items-center justify-center select-none transition-all ${cellBg} ${occupied ? "" : "cursor-pointer"}`}
                       onClick={() => handleDayClick(day)}
                     >
                       <span className={`w-7 h-7 flex items-center justify-center ${textStyle}`}>
@@ -423,7 +498,8 @@ export default function ReservaFechaHoraPage() {
           <div className="flex justify-end mt-2">
             <button
               onClick={handleContinuar}
-              className="bg-[#F58220] hover:bg-[#e0731a] active:scale-95 text-white font-bold px-7 py-2.5 rounded-full shadow-md flex items-center gap-2 text-sm transition-all cursor-pointer"
+              disabled={loadingReservas || !startDay || selectionIsOccupied}
+              className="bg-[#F58220] hover:bg-[#e0731a] active:scale-95 text-white font-bold px-7 py-2.5 rounded-full shadow-md flex items-center gap-2 text-sm transition-all cursor-pointer disabled:bg-gray-300 disabled:cursor-not-allowed disabled:hover:bg-gray-300"
             >
               Continuar
               <svg
