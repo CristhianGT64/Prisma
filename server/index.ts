@@ -549,7 +549,7 @@ app.post("/api/reservas/:id/resena", requireAuth, async (req: AuthRequest, res) 
   );
   await run("UPDATE reservas SET resena_dejada = 1 WHERE id = ?", [reserva.id]);
 
-  const stats = queryOne<{ avg: number; c: number }>(
+  const stats = await queryOne<{ avg: number; c: number }>(
     "SELECT AVG(calificacion) as avg, COUNT(*) as c FROM resenas WHERE espacio_id = ?",
     [reserva.espacio_id]
   );
