@@ -36,7 +36,10 @@ export default function PerfilPage() {
 
   const tabs = [
     { label: "Perfil", action: () => navigate("/perfil/editar") },
-    { label: "Métodos de Pago", action: () => navigate("/perfil/tarjetas") },
+    {
+      label: isArrendador ? "Historial de ingresos" : "Métodos de Pago",
+      action: () => navigate(isArrendador ? "/arrendador/ingresos" : "/perfil/tarjetas"),
+    },
     { label: "Suscripciones", action: () => navigate("/perfil/suscripciones") },
     { label: "Políticas", action: () => navigate("/politicas") },
     { label: "FAQ", action: () => navigate("/faq") },

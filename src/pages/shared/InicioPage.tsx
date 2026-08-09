@@ -1,22 +1,11 @@
-import { useState } from "react";
 import { useNavigate } from "react-router";
 import { useApp } from "../../context/AppContext";
 
 export default function InicioPage() {
   const navigate = useNavigate();
   const { espacios } = useApp();
-  const [categoriaActiva, setCategoriaActiva] = useState("Todos");
-  const [codigoPromo, setCodigoPromo] = useState("");
-
-  const categorias = ["Todos", "Oficinas", "Salas", "Escritorios", "Eventos"];
 
   const espaciosDisponibles = espacios.filter((e) => e.disponible);
-
-  // Filtro por categoría
-  const espaciosFiltrados =
-    categoriaActiva === "Todos"
-      ? espaciosDisponibles
-      : espaciosDisponibles.filter((e) => e.categoriaId === "CAT001");
 
   return (
     <div className="flex-1 overflow-y-auto pb-24 bg-white font-sans">
@@ -26,83 +15,29 @@ export default function InicioPage() {
       </div>
 
       <div className="p-5 max-w-md mx-auto">
-        {/* Barra de búsqueda con borde azul sutil */}
-        <div className="relative mb-6">
-          <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="w-5 h-5 text-[#079FA0]"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2.5}
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-              />
-            </svg>
-          </div>
-          <input
-            type="text"
-            placeholder="Buscar espacios..."
-            className="w-full bg-white border border-blue-400 rounded-2xl py-3 pl-12 pr-4 text-sm font-medium text-gray-700 placeholder-[#079FA0]/60 focus:outline-none focus:ring-2 focus:ring-[#079FA0] transition"
-          />
-        </div>
+        {/* Banner informativo para arrendador */}
+        <div className="relative mb-6 overflow-hidden rounded-2xl border border-[#079FA0]/20 bg-gradient-to-r from-[#079FA0] via-[#12A8A9] to-[#22B8B7] p-4 text-white shadow-lg shadow-cyan-100">
+          <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-white/15" />
+          <div className="absolute -bottom-10 right-10 h-20 w-20 rounded-full bg-[#F58220]/25" />
 
-        {/* Banner Promocional Naranja */}
-        <div className="bg-[#F58220] rounded-2xl p-4 mb-6 text-white shadow-md">
-          <div className="flex items-start gap-2 mb-2">
-            <span className="bg-[#FFCC00] text-gray-900 px-2.5 py-1 rounded-xl text-[10px] font-extrabold tracking-wide uppercase shrink-0">
-              PROMOCIÓN
-            </span>
-            <h2 className="text-sm font-bold leading-tight">
-              ¡20% descuento en tu primer reserva!
-            </h2>
-          </div>
+          <div className="relative z-10 flex items-start gap-3">
+            <div className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-white/20 backdrop-blur-sm">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14m-6 4h2a2 2 0 002-2V8a2 2 0 00-2-2H9a2 2 0 00-2 2v8a2 2 0 002 2zm-6 0h2a2 2 0 002-2v-4a2 2 0 00-2-2H3a2 2 0 00-2 2v4a2 2 0 002 2z" />
+              </svg>
+            </div>
 
-          <p className="text-xs text-white/90 mb-3 font-medium">
-            Ingresa el código: WELCOME20
-          </p>
-
-          {/* Input de cupón promocional + Botón Aplicar */}
-          <div className="flex bg-white rounded-full p-1 pl-4 items-center shadow-inner">
-            <input
-              type="text"
-              placeholder="Ingresa tu código promocional"
-              value={codigoPromo}
-              onChange={(e) => setCodigoPromo(e.target.value)}
-              className="w-full bg-transparent text-xs text-gray-700 placeholder-gray-400 focus:outline-none font-medium"
-            />
-            <button className="bg-[#FFCC00] text-white px-5 py-2 rounded-full text-xs font-extrabold hover:bg-yellow-400 transition-colors shrink-0">
-              Aplicar
-            </button>
-          </div>
-        </div>
-
-        {/* Categorías */}
-        <div className="mb-6">
-          <h3 className="text-xs font-extrabold text-gray-800 uppercase tracking-wide mb-3">
-            CATEGORIAS
-          </h3>
-          <div className="flex overflow-x-auto gap-2 pb-1 hide-scrollbar">
-            {categorias.map((cat) => {
-              const isActive = categoriaActiva === cat;
-              return (
-                <button
-                  key={cat}
-                  onClick={() => setCategoriaActiva(cat)}
-                  className={`px-4 py-1.5 rounded-full text-xs font-bold transition-colors whitespace-nowrap ${
-                    isActive
-                      ? "bg-[#F58220] text-white shadow-sm"
-                      : "bg-[#FFF3C4] text-gray-700 hover:bg-yellow-200"
-                  }`}
-                >
-                  {cat}
-                </button>
-              );
-            })}
+            <div className="min-w-0">
+              <span className="inline-block rounded-full bg-white/20 px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wide">
+                vista previa
+              </span>
+              <h2 className="mt-2 text-base font-extrabold leading-tight">
+                Visualiza cómo se verán tus espacios publicados
+              </h2>
+              <p className="mt-1 text-xs font-medium text-white/90">
+                Revisa el detalle completo de tus publicaciones antes de editarlas.
+              </p>
+            </div>
           </div>
         </div>
 
@@ -112,7 +47,7 @@ export default function InicioPage() {
             ESPACIOS RECOMENDADOS
           </h3>
           <div className="flex flex-col gap-5">
-            {espaciosFiltrados.map((espacio) => (
+            {espaciosDisponibles.map((espacio) => (
               <button
                 key={espacio.id}
                 onClick={() => navigate(`/espacios/${espacio.id}`)}
@@ -143,7 +78,7 @@ export default function InicioPage() {
                   </p>
                   {espacio.precioHora && (
                     <p className="text-[#F58220] font-extrabold text-sm">
-                      ${espacio.precioHora}/hora
+                      L. {espacio.precioHora}/hora
                     </p>
                   )}
                 </div>

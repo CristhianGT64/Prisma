@@ -296,9 +296,69 @@ app.delete("/api/espacios/:id", requireAuth, async (req: AuthRequest, res) => {
   if (existing.arrendador_id !== req.user!.id) {
     return res.status(403).json({ error: "No autorizado" });
   }
+  await run("DELETE FROM fechas_bloqueadas WHERE espacio_id = ?", [req.params.id]);
   await run("DELETE FROM favoritos WHERE espacio_id = ?", [req.params.id]);
   await run("DELETE FROM espacios WHERE id = ?", [req.params.id]);
   res.json({ ok: true });
+});
+
+app.get("/api/espacios/:id/fechas-bloqueadas", async (req, res) => {
+  const espacio = await queryOne("SELECT id FROM espacios WHERE id = ?", [req.params.id]);
+  if (!espacio) return res.status(404).json({ error: "Espacio no encontrado" });
+
+  const rows = await queryAll<{ fecha: string }>(
+    "SELECT fecha FROM fechas_bloqueadas WHERE espacio_id = ? ORDER BY fecha ASC",
+    [req.params.id]
+  );
+  res.json({ fechas: rows.map((r) => r.fecha) });
+});
+
+app.put("/api/arrendador/espacios/:id/fechas-bloqueadas", requireAuth, async (req: AuthRequest, res) => {
+  if (req.user!.rol !== "arrendador") {
+    return res.status(403).json({ error: "Solo arrendadores" });
+  }
+
+  const espacio = await queryOne<{ id: string; arrendador_id: string }>(
+    "SELECT id, arrendador_id FROM espacios WHERE id = ?",
+    [req.params.id]
+  );
+  if (!espacio) return res.status(404).json({ error: "Espacio no encontrado" });
+  if (espacio.arrendador_id !== req.user!.id) {
+    return res.status(403).json({ error: "No autorizado" });
+  }
+
+  const fechasInput = Array.isArray(req.body?.fechas) ? req.body.fechas : [];
+  const fechasLimpias = Array.from(
+    new Set(
+      fechasInput
+        .map((f: unknown) => String(f ?? "").trim())
+        .filter((f: string) => /^\d{4}-\d{2}-\d{2}$/.test(f))
+    )
+  ).sort();
+
+  const existentes = await queryAll<{ fecha: string }>(
+    "SELECT fecha FROM fechas_bloqueadas WHERE espacio_id = ?",
+    [req.params.id]
+  );
+  const existentesSet = new Set(existentes.map((x) => x.fecha));
+  const nuevasSet = new Set(fechasLimpias);
+
+  const paraEliminar = existentes.filter((x) => !nuevasSet.has(x.fecha)).map((x) => x.fecha);
+  const paraInsertar = fechasLimpias.filter((f) => !existentesSet.has(f));
+
+  for (const fecha of paraEliminar) {
+    await run("DELETE FROM fechas_bloqueadas WHERE espacio_id = ? AND fecha = ?", [req.params.id, fecha]);
+  }
+
+  const hoy = new Date().toISOString().split("T")[0];
+  for (const fecha of paraInsertar) {
+    await run(
+      "INSERT INTO fechas_bloqueadas (espacio_id, arrendador_id, fecha, fecha_creacion) VALUES (?,?,?,?)",
+      [req.params.id, req.user!.id, fecha, hoy]
+    );
+  }
+
+  res.json({ fechas: fechasLimpias });
 });
 
 // --- Favoritos ---
@@ -391,6 +451,25 @@ app.post("/api/reservas", requireAuth, async (req: AuthRequest, res) => {
   const b = req.body ?? {};
   const espacio = await queryOne("SELECT * FROM espacios WHERE id = ?", [b.espacioId]);
   if (!espacio) return res.status(404).json({ error: "Espacio no encontrado" });
+
+  const fechaInicio = String(b.fechaInicio ?? "");
+  const fechaFin = String(b.fechaFin ?? b.fechaInicio ?? "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaInicio) || !/^\d{4}-\d{2}-\d{2}$/.test(fechaFin)) {
+    return res.status(400).json({ error: "Fechas inválidas" });
+  }
+
+  const bloqueada = await queryOne<{ fecha: string }>(
+    `SELECT fecha
+     FROM fechas_bloqueadas
+     WHERE espacio_id = ? AND fecha >= ? AND fecha <= ?
+     ORDER BY fecha ASC
+     LIMIT 1`,
+    [b.espacioId, fechaInicio, fechaFin]
+  );
+  if (bloqueada) {
+    return res.status(409).json({ error: `La fecha ${bloqueada.fecha} no está disponible para reservar` });
+  }
+
   const id = await nextId("RES", "reservas");
   const fecha = new Date().toISOString().split("T")[0];
   await run(
@@ -404,8 +483,8 @@ app.post("/api/reservas", requireAuth, async (req: AuthRequest, res) => {
       b.espacioId,
       req.user!.id,
       espacio.arrendador_id,
-      b.fechaInicio,
-      b.fechaFin ?? b.fechaInicio,
+      fechaInicio,
+      fechaFin,
       b.estado ?? "confirmada",
       b.precioTotal ?? 0,
       fecha,

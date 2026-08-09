@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router";
+import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import BottomNav from "../../components/layout/BottomNav";
 
@@ -15,8 +16,9 @@ export default function ReservaFechaHoraPage() {
   const [selectedYear, setSelectedYear] = useState(2026);
   
   // Selección de días (por defecto del 9 al 12 de Junio de 2026)
-  const [startDay, setStartDay] = useState<number | null>(9);
-  const [endDay, setEndDay] = useState<number | null>(12);
+  const [startDay, setStartDay] = useState<number | null>(null);
+  const [endDay, setEndDay] = useState<number | null>(null);
+  const [fechasBloqueadas, setFechasBloqueadas] = useState<string[]>([]);
 
   // Control de horas de inicio y fin (Formato 12 hrs)
   const [horaInicioNum, setHoraInicioNum] = useState("09");
@@ -33,6 +35,15 @@ export default function ReservaFechaHoraPage() {
     }
   }, [espacio, navigate]);
 
+  useEffect(() => {
+    if (!id) return;
+    api<{ fechas?: string[] }>(`/espacios/${id}/fechas-bloqueadas`)
+      .then((data) => {
+        setFechasBloqueadas(Array.isArray(data?.fechas) ? data.fechas : []);
+      })
+      .catch(() => setFechasBloqueadas([]));
+  }, [id]);
+
   if (!espacio) return null;
 
   // Nombres de meses y días
@@ -45,12 +56,34 @@ export default function ReservaFechaHoraPage() {
   const daysInMonth = new Date(selectedYear, selectedMonth + 1, 0).getDate();
   const firstDayOfWeek = new Date(selectedYear, selectedMonth, 1).getDay(); // 0 = Dom
 
+  const fechaIso = (day: number) =>
+    `${selectedYear}-${(selectedMonth + 1).toString().padStart(2, "0")}-${day
+      .toString()
+      .padStart(2, "0")}`;
+
+  const isBloqueada = (day: number) => fechasBloqueadas.includes(fechaIso(day));
+
+  const rangoIncluyeBloqueadas = (desde: number, hasta: number) => {
+    const inicio = Math.min(desde, hasta);
+    const fin = Math.max(desde, hasta);
+    for (let d = inicio; d <= fin; d += 1) {
+      if (isBloqueada(d)) return true;
+    }
+    return false;
+  };
+
   // Manejo de clicks en los días del calendario
   const handleDayClick = (day: number) => {
+    if (isBloqueada(day)) return;
+
     if (!startDay || (startDay && endDay)) {
       setStartDay(day);
       setEndDay(null);
     } else if (startDay && !endDay) {
+      if (rangoIncluyeBloqueadas(startDay, day)) {
+        alert("No puedes seleccionar un rango con fechas bloqueadas por el arrendador");
+        return;
+      }
       if (day < startDay) {
         setEndDay(startDay);
         setStartDay(day);
@@ -94,6 +127,11 @@ export default function ReservaFechaHoraPage() {
   const handleContinuar = () => {
     if (!startDay) {
       alert("Por favor selecciona al menos una fecha en el calendario");
+      return;
+    }
+
+    if (endDay && rangoIncluyeBloqueadas(startDay, endDay)) {
+      alert("El rango seleccionado incluye fechas bloqueadas. Elige otras fechas.");
       return;
     }
     
@@ -235,11 +273,15 @@ export default function ReservaFechaHoraPage() {
                   const isStart = day === startDay;
                   const isEnd = day === endDay;
                   const isInRange = startDay && endDay && day >= startDay && day <= endDay;
+                  const bloqueada = isBloqueada(day);
 
                   let cellBg = "";
                   let textStyle = "text-gray-800 hover:bg-gray-100 rounded-xl";
 
-                  if (isInRange) {
+                  if (bloqueada) {
+                    cellBg = "bg-gray-200 rounded-xl";
+                    textStyle = "text-gray-500 font-semibold";
+                  } else if (isInRange) {
                     cellBg = "bg-[#F58220]";
                     textStyle = "text-white font-bold";
                     if (isStart) cellBg += " rounded-l-xl";
@@ -252,7 +294,9 @@ export default function ReservaFechaHoraPage() {
                   return (
                     <div
                       key={day}
-                      className={`py-1 flex items-center justify-center cursor-pointer select-none transition-all ${cellBg}`}
+                      className={`py-1 flex items-center justify-center select-none transition-all ${
+                        bloqueada ? "cursor-not-allowed" : "cursor-pointer"
+                      } ${cellBg}`}
                       onClick={() => handleDayClick(day)}
                     >
                       <span className={`w-7 h-7 flex items-center justify-center ${textStyle}`}>
@@ -261,6 +305,11 @@ export default function ReservaFechaHoraPage() {
                     </div>
                   );
                 })}
+              </div>
+
+              <div className="mt-4 flex items-center gap-2 text-[11px] text-gray-500">
+                <span className="w-3 h-3 rounded-sm bg-gray-200 border border-gray-300" />
+                <span>Fechas no disponibles por bloqueo del arrendador</span>
               </div>
             </div>
           </div>

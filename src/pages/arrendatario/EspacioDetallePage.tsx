@@ -5,7 +5,7 @@ import BottomNav from "../../components/layout/BottomNav";
 export default function EspacioDetallePage() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
-  const { espacios, usuarios, toggleFavorito, esFavorito } = useApp();
+  const { espacios, usuarios, usuarioActual, toggleFavorito, esFavorito } = useApp();
 
   const espacio = espacios.find((e) => e.id === id);
 
@@ -22,6 +22,7 @@ export default function EspacioDetallePage() {
 
   const arrendador = usuarios.find((u) => u.id === espacio.arrendadorId);
   const isFav = esFavorito(espacio.id);
+  const esArrendador = usuarioActual?.rol === "arrendador";
 
   return (
     <div className="flex flex-col h-screen bg-white relative max-w-[430px] mx-auto shadow-2xl border-x border-gray-100">
@@ -58,28 +59,30 @@ export default function EspacioDetallePage() {
             </svg>
           </button>
 
-          {/* Botón de Favorito en imagen */}
-          <button
-            onClick={() => {
-              void toggleFavorito(espacio.id);
-            }}
-            className="absolute top-4 right-4 w-9 h-9 bg-white/80 backdrop-blur-md rounded-full flex items-center justify-center text-[#EF5350] shadow-sm z-10"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="w-5 h-5"
-              fill={isFav ? "currentColor" : "none"}
-              viewBox="0 0 24 24"
-              stroke="currentColor"
+          {!esArrendador && (
+            /* Botón de Favorito en imagen */
+            <button
+              onClick={() => {
+                void toggleFavorito(espacio.id);
+              }}
+              className="absolute top-4 right-4 w-9 h-9 bg-white/80 backdrop-blur-md rounded-full flex items-center justify-center text-[#EF5350] shadow-sm z-10"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
-              />
-            </svg>
-          </button>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="w-5 h-5"
+                fill={isFav ? "currentColor" : "none"}
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
+                />
+              </svg>
+            </button>
+          )}
         </div>
 
         <div className="px-5 py-5 flex flex-col gap-5">
@@ -220,10 +223,20 @@ export default function EspacioDetallePage() {
             </div>
           </div>
 
-          {/* Botón Reserva Ahora */}
+          {/* Acción principal */}
           <button
-            onClick={() => navigate(`/espacios/${espacio.id}/reservar/paso-1`)}
-            className="w-full bg-[#FF9800] text-white font-bold py-3.5 rounded-2xl shadow-md shadow-orange-100 hover:bg-[#F57C00] active:scale-[0.98] transition-transform flex items-center justify-center gap-2 mt-2"
+            onClick={() =>
+              navigate(
+                esArrendador
+                  ? `/arrendador/espacios/${espacio.id}/editar`
+                  : `/espacios/${espacio.id}/reservar/paso-1`
+              )
+            }
+            className={`w-full text-white font-bold py-3.5 rounded-2xl shadow-md active:scale-[0.98] transition-transform flex items-center justify-center gap-2 mt-2 ${
+              esArrendador
+                ? "bg-[#00BFA5] shadow-cyan-100 hover:bg-[#00897B]"
+                : "bg-[#FF9800] shadow-orange-100 hover:bg-[#F57C00]"
+            }`}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -232,14 +245,23 @@ export default function EspacioDetallePage() {
               viewBox="0 0 24 24"
               stroke="currentColor"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-              />
+              {esArrendador ? (
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                />
+              ) : (
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                />
+              )}
             </svg>
-            Reserva ahora
+            {esArrendador ? "Editar espacio" : "Reservar ahora"}
           </button>
         </div>
       </div>

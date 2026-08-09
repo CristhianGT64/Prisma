@@ -83,6 +83,16 @@ CREATE TABLE IF NOT EXISTS reservas (
   FOREIGN KEY (usuario_arrendador_id) REFERENCES usuarios(id)
 );
 
+CREATE TABLE IF NOT EXISTS fechas_bloqueadas (
+  espacio_id TEXT NOT NULL,
+  arrendador_id TEXT NOT NULL,
+  fecha TEXT NOT NULL,
+  fecha_creacion TEXT,
+  PRIMARY KEY (espacio_id, fecha),
+  FOREIGN KEY (espacio_id) REFERENCES espacios(id),
+  FOREIGN KEY (arrendador_id) REFERENCES usuarios(id)
+);
+
 CREATE TABLE IF NOT EXISTS favoritos (
   id TEXT PRIMARY KEY,
   usuario_id TEXT NOT NULL,
