@@ -1,4 +1,5 @@
 import { useNavigate } from "react-router";
+import { useState } from "react";
 import { useApp } from "../../context/AppContext";
 import ServicioTag from "../../components/ui/ServicioTag";
 import BottomNav from "../../components/layout/BottomNav";
@@ -66,6 +67,8 @@ function EspacioCardArrendador({ espacio, onEditar, onEliminar }: EspacioCardArr
 export default function MisEspaciosPage() {
     const navigate = useNavigate();
     const { usuarioActual, obtenerEspaciosPorArrendador, eliminarEspacio } = useApp();
+    const [espacioAEliminar, setEspacioAEliminar] = useState<Espacio | null>(null);
+    const [eliminando, setEliminando] = useState(false);
 
     if (!usuarioActual) {
         navigate("/login");
@@ -74,13 +77,22 @@ export default function MisEspaciosPage() {
 
     const mis_espacios = obtenerEspaciosPorArrendador(usuarioActual.id);
 
-    const handleEliminar = async (id: string) => {
-        if (confirm("¿Estás seguro de eliminar este espacio?")) {
-            try {
-                await eliminarEspacio(id);
-            } catch {
-                /* ignore */
-            }
+    const handleSolicitarEliminar = (id: string) => {
+        const espacio = mis_espacios.find((item) => item.id === id) || null;
+        setEspacioAEliminar(espacio);
+    };
+
+    const handleConfirmarEliminar = async () => {
+        if (!espacioAEliminar || eliminando) return;
+
+        setEliminando(true);
+        try {
+            await eliminarEspacio(espacioAEliminar.id);
+            setEspacioAEliminar(null);
+        } catch {
+            /* ignore */
+        } finally {
+            setEliminando(false);
         }
     };
 
@@ -129,12 +141,59 @@ export default function MisEspaciosPage() {
                                 key={espacio.id}
                                 espacio={espacio}
                                 onEditar={(id) => navigate(`/arrendador/espacios/${id}/editar`)}
-                                onEliminar={handleEliminar}
+                                onEliminar={handleSolicitarEliminar}
                             />
                         ))
                     )}
                 </div>
             </div>
+
+            {espacioAEliminar && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+                    <button
+                        type="button"
+                        aria-label="Cerrar modal"
+                        className="absolute inset-0 bg-black/35 backdrop-blur-[1.5px]"
+                        onClick={() => !eliminando && setEspacioAEliminar(null)}
+                    />
+
+                    <div className="relative w-full max-w-xs rounded-2xl bg-white shadow-2xl border border-orange-100 overflow-hidden animate-[fadeIn_.2s_ease-out]">
+                        <div className="h-1.5 bg-gradient-to-r from-[#F58220] via-[#FF9C49] to-[#F58220]" />
+                        <div className="p-5">
+                            <div className="w-11 h-11 rounded-full bg-red-50 text-[#FF3B30] mx-auto mb-3 flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                            </div>
+
+                            <h3 className="text-center text-base font-bold text-gray-800">Confirmar eliminación</h3>
+                            <p className="text-center text-sm text-gray-500 mt-2 leading-relaxed">
+                                ¿Estás seguro de eliminar
+                                <span className="font-semibold text-gray-700"> "{espacioAEliminar.nombre}"</span>?
+                            </p>
+
+                            <div className="mt-5 grid grid-cols-2 gap-2.5">
+                                <button
+                                    type="button"
+                                    onClick={() => setEspacioAEliminar(null)}
+                                    disabled={eliminando}
+                                    className="py-2.5 rounded-xl text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors disabled:opacity-60"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleConfirmarEliminar}
+                                    disabled={eliminando}
+                                    className="py-2.5 rounded-xl text-sm font-semibold text-white bg-[#FF3B30] hover:bg-red-600 transition-colors disabled:opacity-70"
+                                >
+                                    {eliminando ? "Eliminando..." : "Eliminar"}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Navegación Inferior */}
             <BottomNav />
