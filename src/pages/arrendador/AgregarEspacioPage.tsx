@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
+import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import ServicioTag from "../../components/ui/ServicioTag";
 import { serviciosIncluidos as todosServicios } from "../../Data/ServiciosIncluidosData";
 import type { ServicioIncluido } from "../../interfaces/ServiciosIncluidos";
+import type { Categoria } from "../../interfaces/Categoria";
 
 export default function AgregarEspacioPage() {
     const navigate = useNavigate();
@@ -14,6 +16,7 @@ export default function AgregarEspacioPage() {
         direccion: "",
         ciudad: "",
         descripcion: "",
+        categoriaId: "",
         precioHora: "",
         precioDia: "",
     });
@@ -21,13 +24,18 @@ export default function AgregarEspacioPage() {
     const [serviciosSeleccionados, setServiciosSeleccionados] = useState<ServicioIncluido[]>([]);
     const [loading, setLoading] = useState(false);
     const [previewIndex, setPreviewIndex] = useState(0);
+    const [categorias, setCategorias] = useState<Categoria[]>([]);
+
+    useEffect(() => {
+        api<Categoria[]>("/categorias").then(setCategorias).catch(() => setCategorias([]));
+    }, []);
 
     if (!usuarioActual) {
         navigate("/login");
         return null;
     }
 
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         setForm(prev => ({ ...prev, [e.target.name]: e.target.value }));
     };
 
@@ -100,6 +108,7 @@ export default function AgregarEspacioPage() {
                 direccion: form.direccion,
                 ciudad: form.ciudad,
                 descripcion: form.descripcion,
+                categoriaId: form.categoriaId,
                 imagenes: imagenesLimpias,
                 serviciosIncluidos: serviciosSeleccionados,
                 precioHora: Number(form.precioHora) || 0,
@@ -241,6 +250,27 @@ export default function AgregarEspacioPage() {
                         required
                         className="w-full border border-[#FF9800]/30 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#FF9800] focus:border-transparent transition bg-gray-50/50 text-gray-800 placeholder:text-gray-400"
                     />
+                </div>
+
+                {/* Categoría */}
+                <div>
+                    <label className="block text-xs font-bold text-gray-800 mb-1.5 uppercase tracking-wide">
+                        Categoría <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                        name="categoriaId"
+                        value={form.categoriaId}
+                        onChange={handleChange}
+                        required
+                        className="w-full border border-[#FF9800]/30 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#FF9800] focus:border-transparent transition bg-gray-50/50 text-gray-800"
+                    >
+                        <option value="">Selecciona una categoría</option>
+                        {categorias.map((categoria) => (
+                            <option key={categoria.id} value={categoria.id}>
+                                {categoria.nombre}
+                            </option>
+                        ))}
+                    </select>
                 </div>
 
                 {/* Descripción */}

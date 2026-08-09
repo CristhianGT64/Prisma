@@ -1,86 +1,216 @@
-import { useNavigate } from "react-router";
+import { useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router";
+import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
+import CategoriaTag from "../../components/ui/CategoriaTag";
+
+interface Categoria {
+  id: string;
+  nombre: string;
+}
 
 export default function InicioPage() {
   const navigate = useNavigate();
-  const { espacios } = useApp();
+  const location = useLocation();
+  const { espacios, usuarioActual } = useApp();
+  const isArrendador = usuarioActual?.rol === "arrendador";
+  const [categorias, setCategorias] = useState<Categoria[]>([]);
+  const [busqueda, setBusqueda] = useState("");
+  const [categoriaActiva, setCategoriaActiva] = useState("Todos");
+  const [codigoPromo, setCodigoPromo] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    if (isArrendador) return;
+    api<Categoria[]>("/categorias").then(setCategorias).catch(() => setCategorias([]));
+  }, [isArrendador]);
+
+  useEffect(() => {
+    if (location.pathname === "/buscar") {
+      const timer = window.setTimeout(() => {
+        searchInputRef.current?.focus();
+        searchInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 100);
+      return () => window.clearTimeout(timer);
+    }
+  }, [location.pathname]);
+
+  const categoriasMostrar = [{ id: "Todos", nombre: "Todos" }, ...categorias];
   const espaciosDisponibles = espacios.filter((e) => e.disponible);
+  const espaciosFiltrados = espaciosDisponibles.filter((espacio) => {
+    const texto = `${espacio.nombre} ${espacio.direccion} ${espacio.ciudad} ${espacio.descripcion}`.toLowerCase();
+    const coincideBusqueda = !busqueda.trim() || texto.includes(busqueda.trim().toLowerCase());
+    const coincideCategoria = categoriaActiva === "Todos" || espacio.categoriaId === categoriaActiva;
+    return coincideBusqueda && coincideCategoria;
+  });
+
+  if (isArrendador) {
+    return (
+      <div className="flex-1 overflow-y-auto pb-24 bg-white font-sans">
+        <div className="bg-[#079FA0] px-5 py-3.5 sticky top-0 z-10 shadow-sm flex items-center justify-center">
+          <h1 className="text-white font-bold text-lg">Espacio de Trabajo</h1>
+        </div>
+
+        <div className="p-5 max-w-md mx-auto">
+          <div className="relative mb-6 overflow-hidden rounded-2xl border border-[#079FA0]/20 bg-gradient-to-r from-[#079FA0] via-[#12A8A9] to-[#22B8B7] p-4 text-white shadow-lg shadow-cyan-100">
+            <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-white/15" />
+            <div className="absolute -bottom-10 right-10 h-20 w-20 rounded-full bg-[#F58220]/25" />
+
+            <div className="relative z-10 flex items-start gap-3">
+              <div className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-white/20 backdrop-blur-sm">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14m-6 4h2a2 2 0 002-2V8a2 2 0 00-2-2H9a2 2 0 00-2 2v8a2 2 0 002 2zm-6 0h2a2 2 0 002-2v-4a2 2 0 00-2-2H3a2 2 0 00-2 2v4a2 2 0 002 2z" />
+                </svg>
+              </div>
+
+              <div className="min-w-0">
+                <span className="inline-block rounded-full bg-white/20 px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wide">
+                  vista previa
+                </span>
+                <h2 className="mt-2 text-base font-extrabold leading-tight">
+                  Visualiza cómo se verán tus espacios publicados
+                </h2>
+                <p className="mt-1 text-xs font-medium text-white/90">
+                  Revisa el detalle completo de tus publicaciones antes de editarlas.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-xs font-extrabold text-gray-800 uppercase tracking-wide mb-3">
+              ESPACIOS RECOMENDADOS
+            </h3>
+            <div className="flex flex-col gap-5">
+              {espaciosDisponibles.map((espacio) => (
+                <button
+                  key={espacio.id}
+                  onClick={() => navigate(`/espacios/${espacio.id}`)}
+                  className="bg-white rounded-2xl overflow-hidden shadow-md border border-gray-100 flex flex-col text-left transition-transform active:scale-[0.99]"
+                >
+                  <div className="w-full h-44 bg-gray-100 overflow-hidden">
+                    {espacio.imagenes && espacio.imagenes[0] ? (
+                      <img src={espacio.imagenes[0].url} alt={espacio.nombre} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">Sin imagen</div>
+                    )}
+                  </div>
+
+                  <div className="p-4">
+                    <h4 className="font-bold text-[#079FA0] text-base mb-1">{espacio.nombre}</h4>
+                    <p className="text-xs text-gray-500 mb-2 font-medium">{espacio.direccion}, {espacio.ciudad}</p>
+                    {espacio.precioHora && <p className="text-[#F58220] font-extrabold text-sm">L. {espacio.precioHora}/hora</p>}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div 
+          onClick={() => navigate("/faq")}
+          className="fixed bottom-16 right-4 cursor-pointer z-40 hover:scale-105 transition-transform opacity-50 hover:opacity-100"
+        >
+          <svg width="70" height="70" viewBox="0 0 132 132" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M8.85662 64.6387C5.43199 58.8345 3.99755 51.471 4.09624 44.8176C4.44283 21.4533 22.7303 3.96084 45.9324 4.09797C55.7808 4.11126 65.2875 7.71049 72.6754 14.2229C81.0081 21.4721 86.6464 32.8273 86.6313 43.9197C86.6307 44.391 86.6286 44.8625 86.6233 45.3338C86.4323 50.9526 85.8582 55.237 83.7325 60.5589C83.1296 62.0683 82.3222 63.5577 81.7584 64.9519C79.5019 67.7976 76.2207 72.0206 74.1886 74.996C72.6054 76.3285 71.1516 77.6581 69.4591 78.8524C61.6432 84.3671 54.6036 86.2872 45.2131 86.6485C44.1707 86.6622 43.1284 86.6281 42.0892 86.5467C35.5302 86.034 29.1894 83.958 23.5973 80.4922C22.3629 79.7363 20.9457 78.897 20.0195 77.8002C18.4938 78.3267 4.80267 82.5633 4.27561 82.4424C3.98228 81.7767 8.26 66.9924 8.85662 64.6387Z" fill="#F58B01"/>
+            <path d="M44.283 22.7412C48.9514 22.4932 53.581 23.7046 57.5297 26.2073C62.6183 29.454 66.2115 34.5864 67.5211 40.4788C68.9098 46.7352 67.584 52.7134 64.177 58.0633C64.3861 58.238 64.9244 58.7277 65.1067 58.9292C66.8519 60.8585 70.1016 62.9322 70.1189 65.7326C70.1229 66.8882 69.6612 67.9968 68.8381 68.8082C68.0042 69.6576 66.8608 70.1318 65.6704 70.1217C63.0443 70.0769 59.9443 66.129 58.0364 64.1852C57.3461 64.6337 56.5927 65.0583 55.8792 65.4759C53.1342 66.9072 50.1236 67.7572 47.0354 67.9727C41.0289 68.4404 35.0854 66.481 30.5348 62.5329C26.0124 58.6206 23.2246 53.0755 22.7821 47.1121C22.3031 41.0432 24.293 35.0378 28.3012 30.4558C32.5033 25.6578 37.9707 23.1514 44.283 22.7412Z" fill="#FEFEFE"/>
+          </svg>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 overflow-y-auto pb-24 bg-white font-sans">
-      {/* Header Top Bar */}
       <div className="bg-[#079FA0] px-5 py-3.5 sticky top-0 z-10 shadow-sm flex items-center justify-center">
         <h1 className="text-white font-bold text-lg">Espacio de Trabajo</h1>
       </div>
 
       <div className="p-5 max-w-md mx-auto">
-        {/* Banner informativo para arrendador */}
-        <div className="relative mb-6 overflow-hidden rounded-2xl border border-[#079FA0]/20 bg-gradient-to-r from-[#079FA0] via-[#12A8A9] to-[#22B8B7] p-4 text-white shadow-lg shadow-cyan-100">
-          <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-white/15" />
-          <div className="absolute -bottom-10 right-10 h-20 w-20 rounded-full bg-[#F58220]/25" />
+        <div className="bg-[#F58220] rounded-2xl p-4 mb-6 text-white shadow-md">
+          <div className="flex items-start gap-2 mb-2">
+            <span className="bg-[#FFCC00] text-gray-900 px-2.5 py-1 rounded-xl text-[10px] font-extrabold tracking-wide uppercase shrink-0">
+              PROMOCIÓN
+            </span>
+            <h2 className="text-sm font-bold leading-tight">¡20% descuento en tu primer reserva!</h2>
+          </div>
 
-          <div className="relative z-10 flex items-start gap-3">
-            <div className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-white/20 backdrop-blur-sm">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14m-6 4h2a2 2 0 002-2V8a2 2 0 00-2-2H9a2 2 0 00-2 2v8a2 2 0 002 2zm-6 0h2a2 2 0 002-2v-4a2 2 0 00-2-2H3a2 2 0 00-2 2v4a2 2 0 002 2z" />
-              </svg>
-            </div>
+          <p className="text-xs text-white/90 mb-3 font-medium">
+            Ingresa el código: WELCOME20
+          </p>
 
-            <div className="min-w-0">
-              <span className="inline-block rounded-full bg-white/20 px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wide">
-                vista previa
-              </span>
-              <h2 className="mt-2 text-base font-extrabold leading-tight">
-                Visualiza cómo se verán tus espacios publicados
-              </h2>
-              <p className="mt-1 text-xs font-medium text-white/90">
-                Revisa el detalle completo de tus publicaciones antes de editarlas.
-              </p>
-            </div>
+          <div className="flex bg-white rounded-full p-1 pl-4 items-center shadow-inner">
+            <input
+              type="text"
+              placeholder="Ingresa tu código promocional"
+              value={codigoPromo}
+              onChange={(e) => setCodigoPromo(e.target.value)}
+              className="w-full bg-transparent text-xs text-gray-700 placeholder-gray-400 focus:outline-none font-medium"
+            />
+            <button className="bg-[#FFCC00] text-white px-5 py-2 rounded-full text-xs font-extrabold hover:bg-yellow-400 transition-colors shrink-0">
+              Aplicar
+            </button>
           </div>
         </div>
 
-        {/* Espacios Recomendados */}
+        <div className="relative mb-6">
+          <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 text-[#079FA0]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </div>
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            placeholder="Buscar espacios..."
+            className="w-full bg-white border border-blue-400 rounded-2xl py-3 pl-12 pr-4 text-sm font-medium text-gray-700 placeholder-[#079FA0]/60 focus:outline-none focus:ring-2 focus:ring-[#079FA0] transition"
+          />
+        </div>
+
+        <div className="mb-6">
+          <h3 className="text-xs font-extrabold text-gray-800 uppercase tracking-wide mb-3">
+            CATEGORIAS
+          </h3>
+          <div className="flex overflow-x-auto gap-2 pb-1">
+            {categoriasMostrar.map((categoria) => {
+              const isActive = categoriaActiva === categoria.id;
+              return (
+                <CategoriaTag
+                  key={categoria.id}
+                  label={categoria.nombre}
+                  isActive={isActive}
+                  onClick={() => setCategoriaActiva(categoria.id)}
+                />
+              );
+            })}
+          </div>
+        </div>
+
         <div>
           <h3 className="text-xs font-extrabold text-gray-800 uppercase tracking-wide mb-3">
             ESPACIOS RECOMENDADOS
           </h3>
           <div className="flex flex-col gap-5">
-            {espaciosDisponibles.map((espacio) => (
+            {espaciosFiltrados.map((espacio) => (
               <button
                 key={espacio.id}
                 onClick={() => navigate(`/espacios/${espacio.id}`)}
                 className="bg-white rounded-2xl overflow-hidden shadow-md border border-gray-100 flex flex-col text-left transition-transform active:scale-[0.99]"
               >
-                {/* Imagen Principal */}
                 <div className="w-full h-44 bg-gray-100 overflow-hidden">
                   {espacio.imagenes && espacio.imagenes[0] ? (
-                    <img
-                      src={espacio.imagenes[0].url}
-                      alt={espacio.nombre}
-                      className="w-full h-full object-cover"
-                    />
+                    <img src={espacio.imagenes[0].url} alt={espacio.nombre} className="w-full h-full object-cover" />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
-                      Sin imagen
-                    </div>
+                    <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">Sin imagen</div>
                   )}
                 </div>
 
-                {/* Info del Espacio */}
                 <div className="p-4">
-                  <h4 className="font-bold text-[#079FA0] text-base mb-1">
-                    {espacio.nombre}
-                  </h4>
-                  <p className="text-xs text-gray-500 mb-2 font-medium">
-                    {espacio.direccion}, {espacio.ciudad}
-                  </p>
-                  {espacio.precioHora && (
-                    <p className="text-[#F58220] font-extrabold text-sm">
-                      L. {espacio.precioHora}/hora
-                    </p>
-                  )}
+                  <h4 className="font-bold text-[#079FA0] text-base mb-1">{espacio.nombre}</h4>
+                  <p className="text-xs text-gray-500 mb-2 font-medium">{espacio.direccion}, {espacio.ciudad}</p>
+                  {espacio.precioHora && <p className="text-[#F58220] font-extrabold text-sm">L. {espacio.precioHora}/hora</p>}
                 </div>
               </button>
             ))}
@@ -91,9 +221,9 @@ export default function InicioPage() {
       {/* Botón Flotante Q&A (Burbujas) */}
       <div 
         onClick={() => navigate("/faq")}
-        className="fixed bottom-16 right-4 cursor-pointer z-40 hover:scale-105 transition-transform opacity-50 hover:opacity-100"
+        className="fixed bottom-24 right-4 cursor-pointer z-40 hover:scale-105 transition-transform opacity-90"
       >
-        <svg width="70" height="70" viewBox="0 0 132 132" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <svg width="56" height="56" viewBox="0 0 132 132" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M8.85662 64.6387C5.43199 58.8345 3.99755 51.471 4.09624 44.8176C4.44283 21.4533 22.7303 3.96084 45.9324 4.09797C55.7808 4.11126 65.2875 7.71049 72.6754 14.2229C81.0081 21.4721 86.6464 32.8273 86.6313 43.9197C86.6307 44.391 86.6286 44.8625 86.6233 45.3338C86.4323 50.9526 85.8582 55.237 83.7325 60.5589C83.1296 62.0683 82.3222 63.5577 81.7584 64.9519C79.5019 67.7976 76.2207 72.0206 74.1886 74.996C72.6054 76.3285 71.1516 77.6581 69.4591 78.8524C61.6432 84.3671 54.6036 86.2872 45.2131 86.6485C44.1707 86.6622 43.1284 86.6281 42.0892 86.5467C35.5302 86.034 29.1894 83.958 23.5973 80.4922C22.3629 79.7363 20.9457 78.897 20.0195 77.8002C18.4938 78.3267 4.80267 82.5633 4.27561 82.4424C3.98228 81.7767 8.26 66.9924 8.85662 64.6387Z" fill="#F58B01"/>
             <path d="M44.283 22.7412C48.9514 22.4932 53.581 23.7046 57.5297 26.2073C62.6183 29.454 66.2115 34.5864 67.5211 40.4788C68.9098 46.7352 67.584 52.7134 64.177 58.0633C64.3861 58.238 64.9244 58.7277 65.1067 58.9292C66.8519 60.8585 70.1016 62.9322 70.1189 65.7326C70.1229 66.8882 69.6612 67.9968 68.8381 68.8082C68.0042 69.6576 66.8608 70.1318 65.6704 70.1217C63.0443 70.0769 59.9443 66.129 58.0364 64.1852C57.3461 64.6337 56.5927 65.0583 55.8792 65.4759C53.1342 66.9072 50.1236 67.7572 47.0354 67.9727C41.0289 68.4404 35.0854 66.481 30.5348 62.5329C26.0124 58.6206 23.2246 53.0755 22.7821 47.1121C22.3031 41.0432 24.293 35.0378 28.3012 30.4558C32.5033 25.6578 37.9707 23.1514 44.283 22.7412Z" fill="#FEFEFE"/>
             <path d="M44.9229 30.991C46.9684 30.8781 49.3118 31.3486 51.1804 32.1689C54.6864 33.7003 57.4362 36.5675 58.82 40.1343C60.426 44.2736 59.9471 48.1108 58.1903 52.0661C56.5691 50.3642 54.3368 47.4457 51.9851 47.4468C50.8578 47.4225 49.586 47.8469 48.7868 48.7001C45.3836 52.3337 48.9499 55.1631 51.3334 57.5249L52.0277 58.177C50.0842 59.1049 48.5778 59.5939 46.3989 59.7462C42.5411 60.0187 38.7346 58.7374 35.8269 56.1876C32.9751 53.687 31.2399 50.1511 31.0065 46.3655C30.7287 42.5225 32.0119 38.7299 34.5659 35.8449C37.3932 32.6415 40.7341 31.2461 44.9229 30.991Z" fill="#F58B01"/>

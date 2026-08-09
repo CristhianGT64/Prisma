@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router";
+import { api } from "../../api/client";
+import type { Categoria } from "../../interfaces/Categoria";
 import { useApp } from "../../context/AppContext";
 import ServicioTag from "../../components/ui/ServicioTag";
 import BottomNav from "../../components/layout/BottomNav";
@@ -18,6 +20,7 @@ export default function EditarEspacioPage() {
         direccion: espacio?.direccion ?? "",
         ciudad: espacio?.ciudad ?? "",
         descripcion: espacio?.descripcion ?? "",
+        categoriaId: espacio?.categoriaId ?? "",
         precioHora: espacio?.precioHora?.toString() ?? "",
         precioDia: espacio?.precioDia?.toString() ?? "",
     });
@@ -29,6 +32,7 @@ export default function EditarEspacioPage() {
     );
     const [loading, setLoading] = useState(false);
     const [previewIndex, setPreviewIndex] = useState(0);
+    const [categorias, setCategorias] = useState<Categoria[]>([]);
 
     useEffect(() => {
         if (espacio) {
@@ -37,6 +41,7 @@ export default function EditarEspacioPage() {
                 direccion: espacio.direccion,
                 ciudad: espacio.ciudad,
                 descripcion: espacio.descripcion,
+                categoriaId: espacio.categoriaId ?? "",
                 precioHora: espacio.precioHora?.toString() ?? "",
                 precioDia: espacio.precioDia?.toString() ?? "",
             });
@@ -46,10 +51,14 @@ export default function EditarEspacioPage() {
         }
     }, [espacio]);
 
+    useEffect(() => {
+        api<Categoria[]>("/categorias").then(setCategorias).catch(() => setCategorias([]));
+    }, []);
+
     if (!usuarioActual) { navigate("/login"); return null; }
     if (!espacio) { navigate("/arrendador/espacios"); return null; }
 
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         setForm(prev => ({ ...prev, [e.target.name]: e.target.value }));
     };
 
@@ -94,6 +103,7 @@ export default function EditarEspacioPage() {
                 direccion: form.direccion,
                 ciudad: form.ciudad,
                 descripcion: form.descripcion,
+                categoriaId: form.categoriaId,
                 imagenes: imagenesLimpias,
                 serviciosIncluidos: serviciosSeleccionados,
                 precioHora: Number(form.precioHora) || 0,
@@ -250,6 +260,27 @@ export default function EditarEspacioPage() {
                             rows={4}
                             className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#F58220] focus:border-transparent transition resize-none bg-gray-50/50"
                         />
+                    </div>
+
+                    {/* Categoría */}
+                    <div>
+                        <label className="block text-xs font-bold text-gray-800 mb-1.5 uppercase tracking-wide">
+                            Categoría <span className="text-[#F58220]">*</span>
+                        </label>
+                        <select
+                            name="categoriaId"
+                            value={form.categoriaId}
+                            onChange={handleChange}
+                            required
+                            className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#F58220] focus:border-transparent transition bg-gray-50/50"
+                        >
+                            <option value="">Selecciona una categoría</option>
+                            {categorias.map((categoria) => (
+                                <option key={categoria.id} value={categoria.id}>
+                                    {categoria.nombre}
+                                </option>
+                            ))}
+                        </select>
                     </div>
 
                     {/* Servicios incluidos */}
