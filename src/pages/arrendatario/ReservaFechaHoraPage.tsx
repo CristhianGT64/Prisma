@@ -350,8 +350,8 @@ export default function ReservaFechaHoraPage() {
                   let textStyle = "text-gray-800 hover:bg-gray-100 rounded-xl";
 
                   if (occupied) {
-                    cellBg = "bg-gray-200";
-                    textStyle = "text-gray-400 font-semibold cursor-not-allowed";
+                    cellBg = "bg-[#FFE8E8] rounded-xl";
+                    textStyle = "text-[#C24141] font-semibold cursor-not-allowed";
                   } else if (bloqueada) {
                     cellBg = "bg-gray-200 rounded-xl";
                     textStyle = "text-gray-500 font-semibold";
@@ -381,9 +381,15 @@ export default function ReservaFechaHoraPage() {
                 })}
               </div>
 
-              <div className="mt-4 flex items-center gap-2 text-[11px] text-gray-500">
-                <span className="w-3 h-3 rounded-sm bg-gray-200 border border-gray-300" />
-                <span>Fechas no disponibles por bloqueo del arrendador</span>
+              <div className="mt-4 flex flex-col gap-2 text-[11px] text-gray-500">
+                <div className="flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-sm bg-gray-200 border border-gray-300" />
+                  <span>Fechas no disponibles por bloqueo del arrendador</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-sm bg-[#FFE8E8] border border-[#F5B7B7]" />
+                  <span>Fechas no disponibles porque ya han sido reservadas por otros clientes.</span>
+                </div>
               </div>
             </div>
           </div>
