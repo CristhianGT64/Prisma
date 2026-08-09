@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router";
+import { api } from "../../api/client";
+import type { Categoria } from "../../interfaces/Categoria";
 import { useApp } from "../../context/AppContext";
 import ServicioTag from "../../components/ui/ServicioTag";
 import BottomNav from "../../components/layout/BottomNav";
@@ -18,13 +20,19 @@ export default function EditarEspacioPage() {
         direccion: espacio?.direccion ?? "",
         ciudad: espacio?.ciudad ?? "",
         descripcion: espacio?.descripcion ?? "",
-        imagenUrl: espacio?.imagenes[0]?.url ?? "",
+        categoriaId: espacio?.categoriaId ?? "",
+        precioHora: espacio?.precioHora?.toString() ?? "",
+        precioDia: espacio?.precioDia?.toString() ?? "",
     });
+    const [imagenesUrls, setImagenesUrls] = useState<string[]>(
+        espacio?.imagenes?.length ? espacio.imagenes.map(img => img.url) : [""]
+    );
     const [serviciosSeleccionados, setServiciosSeleccionados] = useState<ServicioIncluido[]>(
         espacio?.serviciosIncluidos ?? []
     );
     const [loading, setLoading] = useState(false);
-    const [previewImg, setPreviewImg] = useState(espacio?.imagenes[0]?.url ?? "");
+    const [previewIndex, setPreviewIndex] = useState(0);
+    const [categorias, setCategorias] = useState<Categoria[]>([]);
 
     useEffect(() => {
         if (espacio) {
@@ -33,17 +41,24 @@ export default function EditarEspacioPage() {
                 direccion: espacio.direccion,
                 ciudad: espacio.ciudad,
                 descripcion: espacio.descripcion,
-                imagenUrl: espacio.imagenes[0]?.url ?? "",
+                categoriaId: espacio.categoriaId ?? "",
+                precioHora: espacio.precioHora?.toString() ?? "",
+                precioDia: espacio.precioDia?.toString() ?? "",
             });
+            setImagenesUrls(espacio.imagenes?.length ? espacio.imagenes.map(img => img.url) : [""]);
             setServiciosSeleccionados(espacio.serviciosIncluidos);
-            setPreviewImg(espacio.imagenes[0]?.url ?? "");
+            setPreviewIndex(0);
         }
-    }, [id]);
+    }, [espacio]);
+
+    useEffect(() => {
+        api<Categoria[]>("/categorias").then(setCategorias).catch(() => setCategorias([]));
+    }, []);
 
     if (!usuarioActual) { navigate("/login"); return null; }
     if (!espacio) { navigate("/arrendador/espacios"); return null; }
 
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         setForm(prev => ({ ...prev, [e.target.name]: e.target.value }));
     };
 
@@ -55,22 +70,44 @@ export default function EditarEspacioPage() {
         );
     };
 
-    const handleImagenChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        setForm(prev => ({ ...prev, imagenUrl: e.target.value }));
-        setPreviewImg(e.target.value);
+    const handleImagenChange = (index: number, value: string) => {
+        setImagenesUrls(prev => prev.map((url, i) => (i === index ? value : url)));
+    };
+
+    const agregarCampoImagen = () => {
+        setImagenesUrls(prev => [...prev, ""]);
+    };
+
+    const eliminarCampoImagen = (index: number) => {
+        setImagenesUrls(prev => {
+            if (prev.length === 1) return prev;
+            const updated = prev.filter((_, i) => i !== index);
+            if (previewIndex >= updated.length) {
+                setPreviewIndex(Math.max(0, updated.length - 1));
+            }
+            return updated;
+        });
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
+        const imagenesLimpias = imagenesUrls
+            .map(url => url.trim())
+            .filter(url => url.length > 0)
+            .map((url, idx) => ({ nombre: `${form.nombre || "Espacio"} ${idx + 1}`, url }));
+
         try {
             await actualizarEspacio(id!, {
                 nombre: form.nombre,
                 direccion: form.direccion,
                 ciudad: form.ciudad,
                 descripcion: form.descripcion,
-                imagenes: form.imagenUrl ? [{ nombre: form.nombre, url: form.imagenUrl }] : espacio.imagenes,
+                categoriaId: form.categoriaId,
+                imagenes: imagenesLimpias,
                 serviciosIncluidos: serviciosSeleccionados,
+                precioHora: Number(form.precioHora) || 0,
+                precioDia: Number(form.precioDia) || 0,
             });
             navigate("/arrendador/espacios");
         } catch {
@@ -79,6 +116,9 @@ export default function EditarEspacioPage() {
             setLoading(false);
         }
     };
+
+    const imagenesConValor = imagenesUrls.filter(url => url.trim().length > 0);
+    const previewImg = imagenesConValor[previewIndex] || imagenesConValor[0] || "";
 
     return (
         <div className="min-h-screen flex flex-col bg-white font-sans relative">
@@ -97,7 +137,7 @@ export default function EditarEspacioPage() {
                     {/* Imagen del espacio */}
                     <div>
                         <label className="block text-xs font-bold text-gray-800 mb-2 uppercase tracking-wide">
-                            Imagen del espacio <span className="text-[#F58220]">*</span>
+                            Imágenes del espacio
                         </label>
                         <div className="w-full h-44 bg-gray-50 rounded-2xl overflow-hidden border border-gray-200 mb-3 shadow-sm">
                             {previewImg ? (
@@ -110,14 +150,55 @@ export default function EditarEspacioPage() {
                                 </div>
                             )}
                         </div>
-                        <input
-                            type="url"
-                            name="imagenUrl"
-                            value={form.imagenUrl}
-                            onChange={handleImagenChange}
-                            placeholder="https://..."
-                            className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#F58220] focus:border-transparent transition bg-gray-50/50"
-                        />
+
+                        {imagenesConValor.length > 1 && (
+                            <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
+                                {imagenesConValor.map((img, idx) => (
+                                    <button
+                                        key={`${img}-${idx}`}
+                                        type="button"
+                                        onClick={() => setPreviewIndex(idx)}
+                                        className={`w-14 h-14 rounded-xl overflow-hidden border-2 shrink-0 ${previewImg === img ? "border-[#F58220]" : "border-transparent"}`}
+                                    >
+                                        <img src={img} alt={`thumb-${idx + 1}`} className="w-full h-full object-cover" />
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+
+                        <div className="flex flex-col gap-2">
+                            {imagenesUrls.map((url, index) => (
+                                <div key={`url-${index}`} className="flex items-center gap-2">
+                                    <input
+                                        type="url"
+                                        value={url}
+                                        onChange={(e) => handleImagenChange(index, e.target.value)}
+                                        placeholder={`URL de imagen ${index + 1}`}
+                                        className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#F58220] focus:border-transparent transition bg-gray-50/50"
+                                    />
+                                    {imagenesUrls.length > 1 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => eliminarCampoImagen(index)}
+                                            className="w-10 h-10 rounded-xl bg-red-50 text-red-500 border border-red-100 hover:bg-red-100 transition"
+                                            aria-label={`Eliminar imagen ${index + 1}`}
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
+                                            </svg>
+                                        </button>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+
+                        <button
+                            type="button"
+                            onClick={agregarCampoImagen}
+                            className="mt-3 text-xs font-bold text-[#F58220] hover:underline"
+                        >
+                            + Agregar otra imagen
+                        </button>
                     </div>
 
                     {/* Nombre */}
@@ -181,6 +262,27 @@ export default function EditarEspacioPage() {
                         />
                     </div>
 
+                    {/* Categoría */}
+                    <div>
+                        <label className="block text-xs font-bold text-gray-800 mb-1.5 uppercase tracking-wide">
+                            Categoría <span className="text-[#F58220]">*</span>
+                        </label>
+                        <select
+                            name="categoriaId"
+                            value={form.categoriaId}
+                            onChange={handleChange}
+                            required
+                            className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#F58220] focus:border-transparent transition bg-gray-50/50"
+                        >
+                            <option value="">Selecciona una categoría</option>
+                            {categorias.map((categoria) => (
+                                <option key={categoria.id} value={categoria.id}>
+                                    {categoria.nombre}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
                     {/* Servicios incluidos */}
                     <div>
                         <label className="block text-xs font-bold text-gray-800 mb-2 uppercase tracking-wide">
@@ -196,6 +298,41 @@ export default function EditarEspacioPage() {
                                     onClick={() => toggleServicio(servicio)}
                                 />
                             ))}
+                        </div>
+                    </div>
+
+                    {/* Precios */}
+                    <div className="bg-[#FFF8F0] border border-[#F58220]/30 rounded-2xl p-4">
+                        <label className="block text-xs font-bold text-gray-800 mb-3 uppercase tracking-wide">
+                            Precios del espacio <span className="text-[#F58220]">*</span>
+                        </label>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label className="block text-[11px] font-semibold text-gray-600 mb-1">Precio por Hora (L)</label>
+                                <input
+                                    type="number"
+                                    name="precioHora"
+                                    value={form.precioHora}
+                                    onChange={handleChange}
+                                    required
+                                    min="0"
+                                    step="0.01"
+                                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#F58220] focus:border-transparent transition bg-white"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-[11px] font-semibold text-gray-600 mb-1">Precio por Día (L)</label>
+                                <input
+                                    type="number"
+                                    name="precioDia"
+                                    value={form.precioDia}
+                                    onChange={handleChange}
+                                    required
+                                    min="0"
+                                    step="0.01"
+                                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#F58220] focus:border-transparent transition bg-white"
+                                />
+                            </div>
                         </div>
                     </div>
 

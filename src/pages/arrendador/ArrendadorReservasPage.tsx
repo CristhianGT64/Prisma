@@ -27,12 +27,38 @@ export default function ArrendadorReservasPage() {
   const [reservas, setReservas] = useState<ReservaArrendador[]>([]);
   const [tab, setTab] = useState<"todas" | "proximas" | "completadas" | "canceladas">("todas");
   const [loading, setLoading] = useState(true);
+  const [modoBloqueo, setModoBloqueo] = useState(false);
+  const [fechasBloqueadas, setFechasBloqueadas] = useState<string[]>([]);
+  const [draftFechasBloqueadas, setDraftFechasBloqueadas] = useState<string[]>([]);
+  const [cargandoBloqueos, setCargandoBloqueos] = useState(false);
+  const [guardandoBloqueos, setGuardandoBloqueos] = useState(false);
 
   // Estados para el manejo del mes en el calendario
   const [fechaActualCalendario, setFechaActualCalendario] = useState(new Date());
   const [fechaSeleccionada, setFechaSeleccionada] = useState<string | null>(null);
 
   const misEspacios = usuarioActual ? obtenerEspaciosPorArrendador(usuarioActual.id) : [];
+
+  useEffect(() => {
+    if (!espacioSeleccionado) {
+      setFechasBloqueadas([]);
+      setDraftFechasBloqueadas([]);
+      return;
+    }
+
+    setCargandoBloqueos(true);
+    api<{ fechas?: string[] }>(`/espacios/${espacioSeleccionado}/fechas-bloqueadas`)
+      .then((data) => {
+        const fechas = Array.isArray(data?.fechas) ? data.fechas : [];
+        setFechasBloqueadas(fechas);
+        setDraftFechasBloqueadas(fechas);
+      })
+      .catch(() => {
+        setFechasBloqueadas([]);
+        setDraftFechasBloqueadas([]);
+      })
+      .finally(() => setCargandoBloqueos(false));
+  }, [espacioSeleccionado]);
 
   useEffect(() => {
     api<ReservaArrendador[] | { reservas?: ReservaArrendador[]; items?: ReservaArrendador[] }>(
@@ -132,6 +158,52 @@ export default function ArrendadorReservasPage() {
     setFechaSeleccionada(null);
   };
 
+  const toggleFechaBloqueada = (fecha: string) => {
+    setDraftFechasBloqueadas((prev) =>
+      prev.includes(fecha) ? prev.filter((f) => f !== fecha) : [...prev, fecha].sort()
+    );
+  };
+
+  const guardarBloqueos = async () => {
+    if (!espacioSeleccionado || guardandoBloqueos) return;
+
+    setGuardandoBloqueos(true);
+    try {
+      const data = await api<{ fechas?: string[] }>(
+        `/arrendador/espacios/${espacioSeleccionado}/fechas-bloqueadas`,
+        {
+          method: "PUT",
+          body: JSON.stringify({ fechas: draftFechasBloqueadas }),
+        }
+      );
+      const fechasGuardadas = Array.isArray(data?.fechas) ? data.fechas : [];
+      setFechasBloqueadas(fechasGuardadas);
+      setDraftFechasBloqueadas(fechasGuardadas);
+    } catch {
+      alert("No se pudieron guardar los bloqueos de fechas");
+    } finally {
+      setGuardandoBloqueos(false);
+    }
+  };
+
+  const formatoFechaVisual = (fechaIso: string) => {
+    const [y, m, d] = fechaIso.split("-").map(Number);
+    const date = new Date(y, m - 1, d);
+    return date.toLocaleDateString("es-ES", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+  };
+
+  const bloqueosDelMes = draftFechasBloqueadas.filter((fecha) => {
+    const [y, m] = fecha.split("-").map(Number);
+    return y === anioActual && m - 1 === mesActual;
+  });
+
+  const cambiosBloqueosPendientes =
+    draftFechasBloqueadas.join("|") !== fechasBloqueadas.join("|");
+
   // Obtener las reservas del día seleccionado (o todas las del mes si no hay día seleccionado)
   const reservasEnCalendario = reservasDelEspacio.filter((r) => {
     if (!r.fechaInicio) return false;
@@ -177,6 +249,7 @@ export default function ArrendadorReservasPage() {
                     onClick={() => {
                       setEspacioSeleccionado(espacio.id);
                       setVistaCalendario(false);
+                      setModoBloqueo(false);
                       setFechaSeleccionada(null);
                     }}
                     className="bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100 cursor-pointer hover:shadow-md transition-all duration-200 active:scale-[0.98]"
@@ -215,6 +288,7 @@ export default function ArrendadorReservasPage() {
             onClick={() => {
               setEspacioSeleccionado(null);
               setVistaCalendario(false);
+              setModoBloqueo(false);
             }}
             className="text-white hover:opacity-80 transition flex items-center gap-1 text-sm font-bold"
           >
@@ -283,6 +357,61 @@ export default function ArrendadorReservasPage() {
                 </div>
               </div>
 
+              <div className="flex items-center gap-2 mb-4 bg-gray-100 rounded-xl p-1">
+                <button
+                  onClick={() => setModoBloqueo(false)}
+                  className={`flex-1 rounded-lg py-1.5 text-xs font-bold transition ${
+                    !modoBloqueo ? "bg-white text-[#F58220] shadow-sm" : "text-gray-500"
+                  }`}
+                >
+                  Ver reservas
+                </button>
+                <button
+                  onClick={() => {
+                    setModoBloqueo(true);
+                    setFechaSeleccionada(null);
+                  }}
+                  className={`flex-1 rounded-lg py-1.5 text-xs font-bold transition ${
+                    modoBloqueo ? "bg-white text-[#00BFA5] shadow-sm" : "text-gray-500"
+                  }`}
+                >
+                  Bloquear fechas
+                </button>
+              </div>
+
+              {modoBloqueo && (
+                <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50 p-3">
+                  <p className="text-[11px] font-medium text-gray-600">
+                    Toca los días para bloquear o desbloquear. Los días bloqueados se muestran en gris y no se podrán reservar.
+                  </p>
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <span className="text-[11px] text-gray-500">
+                      Bloqueadas: <strong className="text-gray-700">{draftFechasBloqueadas.length}</strong>
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setDraftFechasBloqueadas(fechasBloqueadas)}
+                        disabled={!cambiosBloqueosPendientes || guardandoBloqueos}
+                        className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-gray-600 bg-white border border-gray-200 disabled:opacity-50"
+                      >
+                        Restablecer
+                      </button>
+                      <button
+                        onClick={() => void guardarBloqueos()}
+                        disabled={!cambiosBloqueosPendientes || guardandoBloqueos}
+                        className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-white bg-[#00BFA5] hover:bg-[#00897B] disabled:opacity-50"
+                      >
+                        {guardandoBloqueos ? "Guardando..." : "Guardar"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {cargandoBloqueos && (
+                <p className="text-[11px] text-gray-400 mb-3">Cargando fechas bloqueadas...</p>
+              )}
+
               {/* Días de la semana */}
               <div className="grid grid-cols-7 text-center text-xs font-bold text-gray-400 mb-2">
                 <span>Lu</span>
@@ -312,21 +441,34 @@ export default function ArrendadorReservasPage() {
                   const reservasDelDia = reservasDelEspacio.filter((r) => r.fechaInicio === fechaString);
                   const tieneReservas = reservasDelDia.length > 0;
                   const esSeleccionado = fechaSeleccionada === fechaString;
+                  const esBloqueado = draftFechasBloqueadas.includes(fechaString);
 
                   return (
                     <button
                       key={fechaString}
-                      onClick={() => setFechaSeleccionada(esSeleccionado ? null : fechaString)}
+                      onClick={() => {
+                        if (modoBloqueo) {
+                          toggleFechaBloqueada(fechaString);
+                          return;
+                        }
+                        if (esBloqueado) return;
+                        setFechaSeleccionada(esSeleccionado ? null : fechaString);
+                      }}
                       className={`h-10 rounded-xl flex flex-col items-center justify-center relative transition-all text-xs font-bold ${
                         esSeleccionado
                           ? "bg-[#F58220] text-white shadow-md scale-105"
+                          : esBloqueado
+                          ? "bg-gray-200 text-gray-500"
                           : tieneReservas
                           ? "bg-[#FFF8F0] text-[#F58220] border border-[#F58220]/30 hover:bg-[#F58220]/10"
                           : "text-gray-700 hover:bg-gray-100"
                       }`}
                     >
                       <span>{diaNum}</span>
-                      {tieneReservas && !esSeleccionado && (
+                      {esBloqueado && !esSeleccionado && (
+                        <span className="w-1.5 h-1.5 bg-gray-500 rounded-full absolute bottom-1.5" />
+                      )}
+                      {tieneReservas && !esSeleccionado && !esBloqueado && (
                         <span className="w-1.5 h-1.5 bg-[#F58220] rounded-full absolute bottom-1.5" />
                       )}
                     </button>
@@ -349,57 +491,92 @@ export default function ArrendadorReservasPage() {
 
             {/* Listado filtrado por el calendario */}
             <div className="flex flex-col gap-3">
-              <h4 className="text-xs font-bold text-gray-800 uppercase tracking-wide">
-                {fechaSeleccionada ? `Reservas para el ${fechaSeleccionada}` : `Reservas de ${nombreMes}`} ({reservasEnCalendario.length})
-              </h4>
+              {modoBloqueo ? (
+                <>
+                  <h4 className="text-xs font-bold text-gray-800 uppercase tracking-wide">
+                    Fechas bloqueadas de {nombreMes} ({bloqueosDelMes.length})
+                  </h4>
 
-              {reservasEnCalendario.length === 0 && (
-                <div className="bg-white rounded-2xl p-8 text-center text-gray-400 shadow-sm border border-gray-100">
-                  <p className="text-2xl mb-1">📅</p>
-                  <p className="text-xs font-medium">No hay reservas programadas para este periodo</p>
-                </div>
+                  {bloqueosDelMes.length === 0 && (
+                    <div className="bg-white rounded-2xl p-8 text-center text-gray-400 shadow-sm border border-gray-100">
+                      <p className="text-2xl mb-1">🛑</p>
+                      <p className="text-xs font-medium">No hay fechas bloqueadas en este mes</p>
+                    </div>
+                  )}
+
+                  {bloqueosDelMes.map((fecha) => (
+                    <div
+                      key={fecha}
+                      className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex items-center justify-between gap-3"
+                    >
+                      <div>
+                        <p className="text-sm font-bold text-gray-800">{formatoFechaVisual(fecha)}</p>
+                        <p className="text-[11px] text-gray-500">No disponible para nuevas reservas</p>
+                      </div>
+                      <button
+                        onClick={() => toggleFechaBloqueada(fecha)}
+                        className="text-xs font-bold text-[#F58220] bg-[#FFF8F0] border border-[#F58220]/20 px-3 py-1.5 rounded-xl"
+                      >
+                        Quitar
+                      </button>
+                    </div>
+                  ))}
+                </>
+              ) : (
+                <>
+                  <h4 className="text-xs font-bold text-gray-800 uppercase tracking-wide">
+                    {fechaSeleccionada ? `Reservas para el ${fechaSeleccionada}` : `Reservas de ${nombreMes}`} ({reservasEnCalendario.length})
+                  </h4>
+
+                  {reservasEnCalendario.length === 0 && (
+                    <div className="bg-white rounded-2xl p-8 text-center text-gray-400 shadow-sm border border-gray-100">
+                      <p className="text-2xl mb-1">📅</p>
+                      <p className="text-xs font-medium">No hay reservas programadas para este periodo</p>
+                    </div>
+                  )}
+
+                  {reservasEnCalendario.map((r) => {
+                    const { dia, mes, anio } = formatFechaDia(r.fechaInicio);
+                    const badgeInfo = badgeConfig(r.estado);
+
+                    return (
+                      <div
+                        key={r.id}
+                        className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex items-center gap-4 relative"
+                      >
+                        <div className="bg-[#FFF8F0] border border-[#F58220]/20 rounded-xl px-3 py-2.5 text-center min-w-[70px] flex flex-col justify-center">
+                          <span className="text-[10px] font-bold text-[#F58220] uppercase">{mes}</span>
+                          <span className="text-xl font-black text-gray-800 leading-tight">{dia}</span>
+                          <span className="text-[10px] text-gray-400">{anio}</span>
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between mb-1">
+                            <p className="text-xs font-bold text-gray-800">
+                              {r.horaInicio ? `${r.horaInicio}${r.horaFin ? ` - ${r.horaFin}` : ""}` : "Todo el día"}
+                            </p>
+                            <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${badgeInfo.bg}`}>
+                              {badgeInfo.label}
+                            </span>
+                          </div>
+
+                          <h4 className="font-bold text-sm text-gray-800 truncate">{r.arrendatarioNombre}</h4>
+                          <p className="text-[11px] text-gray-400 truncate">{r.arrendatarioEmail}</p>
+
+                          <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-50">
+                            <span className="text-[11px] text-gray-500 font-medium">
+                              {r.cantidadPersonas != null ? `${r.cantidadPersonas} personas` : ""}
+                            </span>
+                            <span className="text-xs font-bold text-[#F58220]">
+                              Reservación #{r.id.slice(-4)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </>
               )}
-
-              {reservasEnCalendario.map((r) => {
-                const { dia, mes, anio } = formatFechaDia(r.fechaInicio);
-                const badgeInfo = badgeConfig(r.estado);
-
-                return (
-                  <div
-                    key={r.id}
-                    className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex items-center gap-4 relative"
-                  >
-                    <div className="bg-[#FFF8F0] border border-[#F58220]/20 rounded-xl px-3 py-2.5 text-center min-w-[70px] flex flex-col justify-center">
-                      <span className="text-[10px] font-bold text-[#F58220] uppercase">{mes}</span>
-                      <span className="text-xl font-black text-gray-800 leading-tight">{dia}</span>
-                      <span className="text-[10px] text-gray-400">{anio}</span>
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between mb-1">
-                        <p className="text-xs font-bold text-gray-800">
-                          {r.horaInicio ? `${r.horaInicio}${r.horaFin ? ` - ${r.horaFin}` : ""}` : "Todo el día"}
-                        </p>
-                        <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${badgeInfo.bg}`}>
-                          {badgeInfo.label}
-                        </span>
-                      </div>
-
-                      <h4 className="font-bold text-sm text-gray-800 truncate">{r.arrendatarioNombre}</h4>
-                      <p className="text-[11px] text-gray-400 truncate">{r.arrendatarioEmail}</p>
-
-                      <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-50">
-                        <span className="text-[11px] text-gray-500 font-medium">
-                          {r.cantidadPersonas != null ? `${r.cantidadPersonas} personas` : ""}
-                        </span>
-                        <span className="text-xs font-bold text-[#F58220]">
-                          Reservación #{r.id.slice(-4)}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
             </div>
           </div>
         ) : (

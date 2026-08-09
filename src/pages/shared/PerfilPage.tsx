@@ -36,7 +36,10 @@ export default function PerfilPage() {
 
   const tabs = [
     { label: "Perfil", action: () => navigate("/perfil/editar") },
-    { label: "Métodos de Pago", action: () => navigate("/perfil/tarjetas") },
+    {
+      label: isArrendador ? "Historial de ingresos" : "Métodos de Pago",
+      action: () => navigate(isArrendador ? "/arrendador/ingresos" : "/perfil/tarjetas"),
+    },
     { label: "Suscripciones", action: () => navigate("/perfil/suscripciones") },
     { label: "Políticas", action: () => navigate("/politicas") },
     { label: "FAQ", action: () => navigate("/faq") },
@@ -102,7 +105,15 @@ export default function PerfilPage() {
         <p className="text-xs text-gray-500 mb-5">Personaliza tu experiencia en Prisma</p>
 
         <div className="w-20 h-20 rounded-full flex items-center justify-center mb-4 shadow-md" style={{ backgroundColor: isArrendador ? "#00BFA5" : "#FF9800" }}>
-          <span className="text-white text-3xl font-extrabold">{iniciales}</span>
+          {usuarioActual.fotoPerfil ? (
+            <img
+              src={usuarioActual.fotoPerfil}
+              alt={`${usuarioActual.nombres} ${usuarioActual.apellidos}`}
+              className="w-full h-full rounded-full object-cover"
+            />
+          ) : (
+            <span className="text-white text-3xl font-extrabold">{iniciales}</span>
+          )}
         </div>
 
         <h2 className="font-extrabold text-gray-800 text-lg">

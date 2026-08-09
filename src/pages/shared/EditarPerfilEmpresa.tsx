@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useApp } from "../../context/AppContext";
 
@@ -26,6 +26,7 @@ export default function EditarPerfilEmpresa() {
         numeroCuenta: usuarioActual?.numeroCuenta ?? "",
         nombreTitular: usuarioActual?.nombreTitular ?? "",
         correoEmpresa: usuarioActual?.correo ?? "",
+        fotoPerfil: usuarioActual?.fotoPerfil ?? "",
         password: "",
         confirmarPassword: "",
     });
@@ -33,6 +34,8 @@ export default function EditarPerfilEmpresa() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
     const [showFotoModal, setShowFotoModal] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement | null>(null);
+    const iniciales = `${usuarioActual?.nombres?.charAt(0) ?? ""}${usuarioActual?.apellidos?.charAt(0) ?? ""}`.toUpperCase();
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setForm(prev => ({ ...prev, [e.target.name]: e.target.value }));
@@ -69,6 +72,31 @@ export default function EditarPerfilEmpresa() {
         }
     };
 
+    const handleElegirFoto = () => {
+        fileInputRef.current?.click();
+    };
+
+    const handleArchivoFoto = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = () => {
+            const dataUrl = typeof reader.result === "string" ? reader.result : "";
+            if (dataUrl) {
+                setForm(prev => ({ ...prev, fotoPerfil: dataUrl }));
+            }
+        };
+        reader.readAsDataURL(file);
+        setShowFotoModal(false);
+        e.target.value = "";
+    };
+
+    const handleEliminarFoto = () => {
+        setForm(prev => ({ ...prev, fotoPerfil: "" }));
+        setShowFotoModal(false);
+    };
+
     const inputClasses = "w-full border border-[#00BFA5] rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-[#00BFA5] focus:border-[#00BFA5] transition bg-[#F5F7F9]";
     const labelClasses = "block text-[10px] font-extrabold text-gray-800 mb-1 ml-1 uppercase";
     const sectionTitleClasses = "text-sm font-extrabold text-gray-800 mb-4 mt-6 uppercase tracking-wider";
@@ -88,12 +116,22 @@ export default function EditarPerfilEmpresa() {
             <div className="flex flex-col items-center px-6 pt-5 py-5">
                 <p className="text-xs text-gray-500 mb-6 text-center">Actualiza tu información personal y de contacto</p>
 
+                <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleArchivoFoto}
+                    className="hidden"
+                />
+
                 {/* Avatar with initials and edit badge */}
                 <div className="relative mb-8">
                     <div className="w-24 h-24 rounded-full bg-[#FFD54F] flex items-center justify-center shadow-md">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="w-16 h-16 text-white mt-4" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
-                        </svg>
+                        {form.fotoPerfil ? (
+                            <img src={form.fotoPerfil} alt="Foto de perfil" className="w-full h-full object-cover rounded-full" />
+                        ) : (
+                            <span className="text-white text-3xl font-extrabold">{iniciales || "EM"}</span>
+                        )}
                     </div>
                     <button
                         type="button"
@@ -245,7 +283,8 @@ export default function EditarPerfilEmpresa() {
 
                         <div className="flex flex-col gap-2">
                             <button
-                                onClick={() => setShowFotoModal(false)}
+                                type="button"
+                                onClick={handleElegirFoto}
                                 className="flex items-center gap-3 text-xs font-bold text-gray-800 hover:bg-[#A5D6A7] rounded-xl py-3 px-2 transition-colors"
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 text-gray-800" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -255,10 +294,8 @@ export default function EditarPerfilEmpresa() {
                             </button>
 
                             <button
-                                onClick={() => {
-                                    actualizarPerfil({ fotoPerfil: "" });
-                                    setShowFotoModal(false);
-                                }}
+                                type="button"
+                                onClick={handleEliminarFoto}
                                 className="flex items-center gap-3 text-xs font-bold text-gray-800 hover:bg-[#A5D6A7] rounded-xl py-3 px-2 transition-colors"
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 text-gray-800" fill="none" viewBox="0 0 24 24" stroke="currentColor">

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useApp } from "../../context/AppContext";
 
@@ -16,6 +16,7 @@ export default function EditarPerfilArrendatario() {
     });
     const [loading, setLoading] = useState(false);
     const [showFotoModal, setShowFotoModal] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement | null>(null);
 
     const iniciales = `${form.nombres?.charAt(0) ?? ""}${form.apellidos?.charAt(0) ?? ""}`.toUpperCase();
 
@@ -41,6 +42,26 @@ export default function EditarPerfilArrendatario() {
         setShowFotoModal(false);
     };
 
+    const handleElegirFoto = () => {
+        fileInputRef.current?.click();
+    };
+
+    const handleArchivoFoto = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = () => {
+            const dataUrl = typeof reader.result === "string" ? reader.result : "";
+            if (dataUrl) {
+                setForm(prev => ({ ...prev, fotoPerfil: dataUrl }));
+            }
+        };
+        reader.readAsDataURL(file);
+        setShowFotoModal(false);
+        e.target.value = "";
+    };
+
     return (
         <div className="flex-1 overflow-y-auto bg-white pb-24 relative">
             {/* Header */}
@@ -59,7 +80,11 @@ export default function EditarPerfilArrendatario() {
                 {/* Avatar with initials and edit badge */}
                 <div className="relative mb-2">
                     <div className="w-20 h-20 rounded-full bg-[#FF9800] flex items-center justify-center shadow-md">
-                        <span className="text-white text-3xl font-extrabold">{iniciales}</span>
+                        {form.fotoPerfil ? (
+                            <img src={form.fotoPerfil} alt="Foto de perfil" className="w-full h-full object-cover rounded-full" />
+                        ) : (
+                            <span className="text-white text-3xl font-extrabold">{iniciales}</span>
+                        )}
                     </div>
                     <button
                         onClick={() => setShowFotoModal(true)}
@@ -79,6 +104,14 @@ export default function EditarPerfilArrendatario() {
                 </button>
 
                 {/* Form */}
+                <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleArchivoFoto}
+                    className="hidden"
+                />
+
                 <form onSubmit={handleSubmit} className="w-full flex flex-col gap-4">
                     <div className="bg-[#F5F7F9] rounded-2xl p-5 flex flex-col gap-4">
                         <p className="text-sm font-extrabold text-gray-800 mb-1">Datos personales</p>
@@ -206,7 +239,8 @@ export default function EditarPerfilArrendatario() {
 
                         <div className="flex flex-col gap-2">
                             <button
-                                onClick={() => setShowFotoModal(false)}
+                                type="button"
+                                onClick={handleElegirFoto}
                                 className="flex items-center gap-3 text-xs font-bold text-gray-800 hover:bg-[#A5D6A7] rounded-xl py-3 px-2 transition-colors"
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 text-gray-800" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -216,6 +250,7 @@ export default function EditarPerfilArrendatario() {
                             </button>
 
                             <button
+                                type="button"
                                 onClick={handleEliminarFoto}
                                 className="flex items-center gap-3 text-xs font-bold text-gray-800 hover:bg-[#A5D6A7] rounded-xl py-3 px-2 transition-colors"
                             >

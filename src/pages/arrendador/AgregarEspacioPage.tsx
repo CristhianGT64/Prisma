@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
+import { api } from "../../api/client";
 import { useApp } from "../../context/AppContext";
 import ServicioTag from "../../components/ui/ServicioTag";
 import { serviciosIncluidos as todosServicios } from "../../Data/ServiciosIncluidosData";
 import type { ServicioIncluido } from "../../interfaces/ServiciosIncluidos";
+import type { Categoria } from "../../interfaces/Categoria";
 
 export default function AgregarEspacioPage() {
     const navigate = useNavigate();
@@ -14,20 +16,26 @@ export default function AgregarEspacioPage() {
         direccion: "",
         ciudad: "",
         descripcion: "",
-        imagenUrl: "",
+        categoriaId: "",
         precioHora: "",
         precioDia: "",
     });
+    const [imagenesUrls, setImagenesUrls] = useState<string[]>([""]);
     const [serviciosSeleccionados, setServiciosSeleccionados] = useState<ServicioIncluido[]>([]);
     const [loading, setLoading] = useState(false);
-    const [previewImg, setPreviewImg] = useState("");
+    const [previewIndex, setPreviewIndex] = useState(0);
+    const [categorias, setCategorias] = useState<Categoria[]>([]);
+
+    useEffect(() => {
+        api<Categoria[]>("/categorias").then(setCategorias).catch(() => setCategorias([]));
+    }, []);
 
     if (!usuarioActual) {
         navigate("/login");
         return null;
     }
 
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         setForm(prev => ({ ...prev, [e.target.name]: e.target.value }));
     };
 
@@ -39,9 +47,23 @@ export default function AgregarEspacioPage() {
         );
     };
 
-    const handleImagenChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        setForm(prev => ({ ...prev, imagenUrl: e.target.value }));
-        setPreviewImg(e.target.value);
+    const handleImagenChange = (index: number, value: string) => {
+        setImagenesUrls(prev => prev.map((url, i) => (i === index ? value : url)));
+    };
+
+    const agregarCampoImagen = () => {
+        setImagenesUrls(prev => [...prev, ""]);
+    };
+
+    const eliminarCampoImagen = (index: number) => {
+        setImagenesUrls(prev => {
+            if (prev.length === 1) return prev;
+            const updated = prev.filter((_, i) => i !== index);
+            if (previewIndex >= updated.length) {
+                setPreviewIndex(Math.max(0, updated.length - 1));
+            }
+            return updated;
+        });
     };
 
     // Cálculo dinámico de precios sugeridos basados en la cantidad de servicios seleccionados
@@ -67,9 +89,18 @@ export default function AgregarEspacioPage() {
         }));
     };
 
+    useEffect(() => {
+        aplicarPreciosSugeridos();
+    }, [serviciosSeleccionados]);
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
+        const imagenesLimpias = imagenesUrls
+            .map(url => url.trim())
+            .filter(url => url.length > 0)
+            .map((url, idx) => ({ nombre: `${form.nombre || "Espacio"} ${idx + 1}`, url }));
+
         try {
             await agregarEspacio({
                 arrendadorId: usuarioActual.id,
@@ -77,7 +108,8 @@ export default function AgregarEspacioPage() {
                 direccion: form.direccion,
                 ciudad: form.ciudad,
                 descripcion: form.descripcion,
-                imagenes: form.imagenUrl ? [{ nombre: form.nombre, url: form.imagenUrl }] : [],
+                categoriaId: form.categoriaId,
+                imagenes: imagenesLimpias,
                 serviciosIncluidos: serviciosSeleccionados,
                 precioHora: Number(form.precioHora) || 0,
                 precioDia: Number(form.precioDia) || 0,
@@ -91,7 +123,8 @@ export default function AgregarEspacioPage() {
         }
     };
 
-    const sugeridos = calcularPreciosSugeridos();
+    const imagenesConValor = imagenesUrls.filter(url => url.trim().length > 0);
+    const previewImg = imagenesConValor[previewIndex] || imagenesConValor[0] || "";
 
     return (
         <div className="flex-1 overflow-y-auto pb-28 bg-white">
@@ -109,7 +142,7 @@ export default function AgregarEspacioPage() {
                 {/* Imagen del espacio */}
                 <div>
                     <label className="block text-xs font-bold text-gray-800 mb-2 uppercase tracking-wide">
-                        Imagen del espacio <span className="text-red-500">*</span>
+                        Imágenes del espacio
                     </label>
                     <div className="w-full h-44 bg-[#FFF8F0] rounded-2xl overflow-hidden border-2 border-dashed border-[#FF9800]/50 flex items-center justify-center mb-3 relative">
                         {previewImg ? (
@@ -123,14 +156,55 @@ export default function AgregarEspacioPage() {
                             </div>
                         )}
                     </div>
-                    <input
-                        type="url"
-                        name="imagenUrl"
-                        value={form.imagenUrl}
-                        onChange={handleImagenChange}
-                        placeholder="URL de la imagen (opcional)"
-                        className="w-full border border-[#FF9800]/30 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#FF9800] focus:border-transparent transition bg-gray-50/50"
-                    />
+
+                    {imagenesConValor.length > 1 && (
+                        <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
+                            {imagenesConValor.map((img, idx) => (
+                                <button
+                                    key={`${img}-${idx}`}
+                                    type="button"
+                                    onClick={() => setPreviewIndex(idx)}
+                                    className={`w-14 h-14 rounded-xl overflow-hidden border-2 shrink-0 ${previewImg === img ? "border-[#FF9800]" : "border-transparent"}`}
+                                >
+                                    <img src={img} alt={`thumb-${idx + 1}`} className="w-full h-full object-cover" />
+                                </button>
+                            ))}
+                        </div>
+                    )}
+
+                    <div className="flex flex-col gap-2">
+                        {imagenesUrls.map((url, index) => (
+                            <div key={`url-${index}`} className="flex items-center gap-2">
+                                <input
+                                    type="url"
+                                    value={url}
+                                    onChange={(e) => handleImagenChange(index, e.target.value)}
+                                    placeholder={`URL de imagen ${index + 1}`}
+                                    className="w-full border border-[#FF9800]/30 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#FF9800] focus:border-transparent transition bg-gray-50/50"
+                                />
+                                {imagenesUrls.length > 1 && (
+                                    <button
+                                        type="button"
+                                        onClick={() => eliminarCampoImagen(index)}
+                                        className="w-10 h-10 rounded-xl bg-red-50 text-red-500 border border-red-100 hover:bg-red-100 transition"
+                                        aria-label={`Eliminar imagen ${index + 1}`}
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
+                                        </svg>
+                                    </button>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+
+                    <button
+                        type="button"
+                        onClick={agregarCampoImagen}
+                        className="mt-3 text-xs font-bold text-[#FF9800] hover:underline"
+                    >
+                        + Agregar otra imagen
+                    </button>
                 </div>
 
                 {/* Nombre */}
@@ -178,6 +252,27 @@ export default function AgregarEspacioPage() {
                     />
                 </div>
 
+                {/* Categoría */}
+                <div>
+                    <label className="block text-xs font-bold text-gray-800 mb-1.5 uppercase tracking-wide">
+                        Categoría <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                        name="categoriaId"
+                        value={form.categoriaId}
+                        onChange={handleChange}
+                        required
+                        className="w-full border border-[#FF9800]/30 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#FF9800] focus:border-transparent transition bg-gray-50/50 text-gray-800"
+                    >
+                        <option value="">Selecciona una categoría</option>
+                        {categorias.map((categoria) => (
+                            <option key={categoria.id} value={categoria.id}>
+                                {categoria.nombre}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+
                 {/* Descripción */}
                 <div>
                     <label className="block text-xs font-bold text-gray-800 mb-1.5 uppercase tracking-wide">
@@ -218,13 +313,6 @@ export default function AgregarEspacioPage() {
                         <span className="text-xs font-bold text-gray-800 uppercase tracking-wide">
                             Precios de Tarifa <span className="text-red-500">*</span>
                         </span>
-                        <button
-                            type="button"
-                            onClick={aplicarPreciosSugeridos}
-                            className="text-xs text-[#FF9800] font-bold hover:underline bg-white px-2.5 py-1 rounded-lg border border-[#FF9800]/30 shadow-xs transition"
-                        >
-                            Usar sugeridos
-                        </button>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">
@@ -235,7 +323,6 @@ export default function AgregarEspacioPage() {
                                 name="precioHora"
                                 value={form.precioHora}
                                 onChange={handleChange}
-                                placeholder={`Sugerido: L.${sugeridos.hora}`}
                                 required
                                 min="0"
                                 step="0.01"
@@ -249,7 +336,6 @@ export default function AgregarEspacioPage() {
                                 name="precioDia"
                                 value={form.precioDia}
                                 onChange={handleChange}
-                                placeholder={`Sugerido: L.${sugeridos.dia}`}
                                 required
                                 min="0"
                                 step="0.01"

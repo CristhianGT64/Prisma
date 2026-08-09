@@ -73,7 +73,7 @@ export default function LoginPage() {
       </div>
 
       {/* Contenedor Turquesa Redondeado Superior */}
-      <div className="bg-[#00BFA5] rounded-t-[35px] px-6 pt-8 pb-10 flex-1 flex flex-col justify-between shadow-lg">
+      <div className="bg-[#079fa0] rounded-t-[35px] px-6 pt-8 pb-10 flex-1 flex flex-col justify-between shadow-lg">
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           {error && (
             <div className="bg-red-500/20 border border-white/40 text-white px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2">
