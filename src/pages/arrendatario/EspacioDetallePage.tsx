@@ -1,4 +1,5 @@
 import { useNavigate, useParams } from "react-router";
+import { useMemo, useState } from "react";
 import { useApp } from "../../context/AppContext";
 import BottomNav from "../../components/layout/BottomNav";
 
@@ -23,6 +24,23 @@ export default function EspacioDetallePage() {
   const arrendador = usuarios.find((u) => u.id === espacio.arrendadorId);
   const isFav = esFavorito(espacio.id);
   const esArrendador = usuarioActual?.rol === "arrendador";
+  const imagenes = useMemo(
+    () => (Array.isArray(espacio.imagenes) ? espacio.imagenes.filter((img) => img?.url) : []),
+    [espacio.imagenes]
+  );
+  const [imagenActiva, setImagenActiva] = useState(0);
+  const imagenPrincipal = imagenes[imagenActiva]?.url || imagenes[0]?.url || "";
+  const puedeNavegarGaleria = imagenes.length > 1;
+
+  const irImagenAnterior = () => {
+    if (!puedeNavegarGaleria) return;
+    setImagenActiva((prev) => (prev === 0 ? imagenes.length - 1 : prev - 1));
+  };
+
+  const irImagenSiguiente = () => {
+    if (!puedeNavegarGaleria) return;
+    setImagenActiva((prev) => (prev === imagenes.length - 1 ? 0 : prev + 1));
+  };
 
   return (
     <div className="flex flex-col h-screen bg-white relative max-w-[430px] mx-auto shadow-2xl border-x border-gray-100">
@@ -30,12 +48,37 @@ export default function EspacioDetallePage() {
       <div className="flex-1 overflow-y-auto pb-28">
         {/* Banner de Imagen */}
         <div className="relative h-64 bg-gray-200">
-          {espacio.imagenes[0] && (
+          {imagenPrincipal && (
             <img
-              src={espacio.imagenes[0].url}
+              src={imagenPrincipal}
               alt={espacio.nombre}
               className="w-full h-full object-cover"
             />
+          )}
+
+          {puedeNavegarGaleria && (
+            <>
+              <button
+                type="button"
+                onClick={irImagenAnterior}
+                className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/30 backdrop-blur-sm text-white flex items-center justify-center z-10"
+                aria-label="Imagen anterior"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onClick={irImagenSiguiente}
+                className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/30 backdrop-blur-sm text-white flex items-center justify-center z-10"
+                aria-label="Imagen siguiente"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            </>
           )}
 
           {/* Botón para regresar */}
@@ -82,6 +125,12 @@ export default function EspacioDetallePage() {
                 />
               </svg>
             </button>
+          )}
+
+          {puedeNavegarGaleria && (
+            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 bg-black/30 backdrop-blur-sm px-2.5 py-1 rounded-full text-[10px] text-white font-semibold">
+              {imagenActiva + 1}/{imagenes.length}
+            </div>
           )}
         </div>
 
